@@ -85,7 +85,29 @@
                 • Найдите тихое место без отвлекающих факторов<br>
                 • Убедитесь в стабильном интернет-соединении
             </p>
-            <button class="btn btn-primary" onclick="startInterview()">Начать интервью</button>
+            <button class="btn btn-primary" onclick="showDeviceTest()">Проверить оборудование и начать интервью</button>
+        </div>
+        
+        <!-- Экран проверки оборудования -->
+        <div id="deviceTestScreen" class="welcome-card hidden">
+            <h2>🎥 Проверка камеры и микрофона</h2>
+            <p style="margin-bottom: 1rem;">Пожалуйста, подтвердите, что камера и микрофон работают корректно.</p>
+            
+            <div style="margin: 1.5rem 0;">
+                <video id="testVideoPreview" autoplay muted playsinline style="width: 100%; max-width: 480px; border-radius: 8px; background: #000;"></video>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
+                <button id="testAudioBtn" class="btn btn-secondary" onclick="testAudio()">🎤 Тест микрофона</button>
+                <div id="audioIndicator" style="align-self: center; font-weight: bold; color: #27ae60; display: none;">🔊 Звук обнаружен!</div>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
+                <button class="btn btn-secondary" onclick="backToWelcome()">← Назад</button>
+                <button id="confirmDevicesBtn" class="btn btn-success hidden" onclick="startInterviewAfterTest()">✅ Всё работает, начать интервью</button>
+            </div>
+            
+            <p id="deviceTestStatus" style="color: #e74c3c; margin-top: 1rem; display: none;"></p>
         </div>
         
         <!-- Экран интервью -->
@@ -176,26 +198,111 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        async function startInterview() {
-            // Запрос доступа к камере и микрофону
+        let testStream = null;
+        
+        // Показать экран проверки оборудования
+        async function showDeviceTest() {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
+                // Запрашиваем доступ к камере и микрофону
+                testStream = await navigator.mediaDevices.getUserMedia({ 
                     video: true, 
                     audio: true 
                 });
                 
+                // Показываем превью камеры
+                const testVideo = document.getElementById('testVideoPreview');
+                testVideo.srcObject = testStream;
+                
+                // Переключаем экраны
+                document.getElementById('welcomeScreen').classList.add('hidden');
+                document.getElementById('deviceTestScreen').classList.remove('hidden');
+                
+                // Включаем кнопку подтверждения после успешного получения доступа
+                setTimeout(() => {
+                    document.getElementById('confirmDevicesBtn').classList.remove('hidden');
+                }, 500);
+                
+            } catch (err) {
+                console.error('Ошибка доступа к устройствам:', err);
+                const statusEl = document.getElementById('deviceTestStatus');
+                statusEl.textContent = '⚠️ Не удалось получить доступ к камере или микрофону. Пожалуйста, разрешите доступ в настройках браузера и обновите страницу.';
+                statusEl.style.display = 'block';
+                showToast('Требуется доступ к камере и микрофону!', true);
+            }
+        }
+        
+        // Тест микрофона
+        function testAudio() {
+            if (!testStream) return;
+            
+            const audioContext = new AudioContext();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(testStream);
+            const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+            
+            analyser.smoothingTimeConstant = 0.8;
+            analyser.fftSize = 1024;
+            
+            microphone.connect(analyser);
+            analyser.connect(scriptProcessor);
+            scriptProcessor.connect(audioContext.destination);
+            
+            const audioIndicator = document.getElementById('audioIndicator');
+            
+            scriptProcessor.onaudioprocess = function() {
+                const array = new Uint8Array(analyser.frequencyBinCount);
+                analyser.getByteFrequencyData(array);
+                const values = array.reduce((a, b) => a + b, 0);
+                const average = values / array.length;
+                
+                if (average > 10) {
+                    audioIndicator.style.display = 'block';
+                }
+            };
+            
+            showToast('Говорите в микрофон для проверки', false);
+        }
+        
+        // Вернуться на экран приветствия
+        function backToWelcome() {
+            if (testStream) {
+                testStream.getTracks().forEach(track => track.stop());
+                testStream = null;
+            }
+            document.getElementById('deviceTestScreen').classList.add('hidden');
+            document.getElementById('welcomeScreen').classList.remove('hidden');
+            document.getElementById('deviceTestStatus').style.display = 'none';
+        }
+        
+        // Начать интервью после проверки
+        async function startInterviewAfterTest() {
+            // Останавливаем тестовый поток
+            if (testStream) {
+                testStream.getTracks().forEach(track => track.stop());
+            }
+            
+            // Используем тот же поток для интервью
+            stream = testStream;
+            
+            try {
+                // Настраиваем превью для интервью
                 document.getElementById('videoPreview').srcObject = stream;
                 
-                // Начинаем интервью
+                // Начинаем интервью через API
                 await fetch(`/api/interviews/${sessionToken}/start`, { method: 'POST' });
                 
-                document.getElementById('welcomeScreen').classList.add('hidden');
+                document.getElementById('deviceTestScreen').classList.add('hidden');
                 document.getElementById('interviewScreen').classList.remove('hidden');
                 
                 showQuestion(0);
             } catch (err) {
-                showToast('Необходим доступ к камере и микрофону!', true);
+                showToast('Ошибка начала интервью', true);
             }
+        }
+        
+        // Старая функция startInterview оставлена для совместимости
+        async function startInterview() {
+            await showDeviceTest();
         }
         
         function showQuestion(index) {
