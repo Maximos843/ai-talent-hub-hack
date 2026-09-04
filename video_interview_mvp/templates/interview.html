@@ -52,6 +52,12 @@
         .status-waiting { background: #95a5a6; color: white; }
         .status-review { background: #f39c12; color: white; }
         
+        /* Статусные сообщения для проверки оборудования */
+        .status-message { padding: 1rem; border-radius: 5px; margin-top: 1rem; text-align: center; }
+        .status-message.warning { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        .status-message.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .status-message.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        
         .actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
         
         .final-screen { text-align: center; padding: 3rem; }
@@ -107,7 +113,7 @@
                 <button id="confirmDevicesBtn" class="btn btn-success hidden" onclick="startInterviewAfterTest()">✅ Всё работает, начать интервью</button>
             </div>
             
-            <p id="deviceTestStatus" style="color: #e74c3c; margin-top: 1rem; display: none;"></p>
+            <div id="deviceTestStatus" class="status-message warning" style="display: none; margin-top: 1rem;"></div>
         </div>
         
         <!-- Экран интервью -->
@@ -202,6 +208,11 @@
         
         // Показать экран проверки оборудования
         async function showDeviceTest() {
+            const statusEl = document.getElementById('deviceTestStatus');
+            statusEl.style.display = 'block';
+            statusEl.textContent = '🔄 Запрос доступа к камере и микрофону...';
+            statusEl.className = 'status-message warning';
+            
             try {
                 // Запрашиваем доступ к камере и микрофону
                 testStream = await navigator.mediaDevices.getUserMedia({ 
@@ -220,13 +231,53 @@
                 // Включаем кнопку подтверждения после успешного получения доступа
                 setTimeout(() => {
                     document.getElementById('confirmDevicesBtn').classList.remove('hidden');
+                    statusEl.textContent = '✅ Доступ получен! Проверьте изображение выше и протестируйте микрофон.';
+                    statusEl.className = 'status-message success';
                 }, 500);
                 
             } catch (err) {
                 console.error('Ошибка доступа к устройствам:', err);
-                const statusEl = document.getElementById('deviceTestStatus');
-                statusEl.textContent = '⚠️ Не удалось получить доступ к камере или микрофону. Пожалуйста, разрешите доступ в настройках браузера и обновите страницу.';
-                statusEl.style.display = 'block';
+                
+                let errorMessage = '⚠️ Не удалось получить доступ к камере или микрофону.';
+                let helpHTML = '';
+                
+                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errorMessage = '❌ Доступ к камере/микрофону запрещен.';
+                    helpHTML = `
+                        <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; text-align: left;">
+                            <strong>📋 Как разрешить доступ:</strong><br><br>
+                            <strong>Шаг 1:</strong> Посмотрите на адресную строку браузера (где написан URL сайта).<br>
+                            <strong>Шаг 2:</strong> Слева от адреса нажмите на значок <strong>🔒 Замка</strong> или <strong>⚙ Настроек</strong>.<br>
+                            <strong>Шаг 3:</strong> В открывшемся меню найдите пункты:<br>
+                            &nbsp;&nbsp;• <strong>Камера</strong> → переключите на <strong>"Разрешить"</strong><br>
+                            &nbsp;&nbsp;• <strong>Микрофон</strong> → переключите на <strong>"Разрешить"</strong><br>
+                            <strong>Шаг 4:</strong> <strong>Обновите страницу</strong> (нажмите F5 или кнопку обновления) и попробуйте снова.
+                        </div>
+                    `;
+                } else if (err.name === 'NotFoundError') {
+                    errorMessage = '❌ Камера или микрофон не найдены на устройстве.';
+                    helpHTML = '<div style="margin-top: 10px;">Убедитесь, что камера и микрофон подключены к компьютеру и не используются другими программами.</div>';
+                } else if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                    errorMessage = '⚠️ Браузер блокирует доступ из-за незащищенного соединения.';
+                    helpHTML = `
+                        <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; text-align: left;">
+                            <strong>🔒 Проблема безопасности:</strong><br><br>
+                            Вы открыли интервью через HTTP (незащищенное соединение). Современные браузеры блокируют камеру на таких сайтах.<br><br>
+                            <strong>Решение:</strong><br>
+                            1. Нажмите на значок <strong>🔒 Замка</strong> слева в адресной строке.<br>
+                            2. Выберите <strong>"Настройки сайта"</strong> или <strong>"Разрешения"</strong>.<br>
+                            3. Вручную включите <strong>Камеру</strong> и <strong>Микрофон</strong>.<br>
+                            4. <strong>Обновите страницу (F5)</strong>.<br><br>
+                            <em>Идеальное решение: используйте HTTPS или localhost для тестирования.</em>
+                        </div>
+                    `;
+                } else {
+                    helpHTML = '<div style="margin-top: 10px;">Попробуйте использовать браузер Google Chrome или обновить страницу.</div>';
+                }
+                
+                statusEl.innerHTML = `<strong>${errorMessage}</strong>${helpHTML}`;
+                statusEl.className = 'status-message error';
+                
                 showToast('Требуется доступ к камере и микрофону!', true);
             }
         }
