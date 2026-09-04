@@ -3,6 +3,7 @@
 """
 import uuid
 import shutil
+import os
 from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
@@ -34,10 +35,14 @@ templates = Jinja2Templates(directory="templates")
 # Безопасность (простая HTTP Basic Auth для MVP)
 security = HTTPBasic()
 
+# Токены доступа из переменных окружения
+HR_INVITE_TOKEN = os.getenv("HR_INVITE_TOKEN", "hr_master_key_2024")
+MANAGER_INVITE_TOKEN = os.getenv("MANAGER_INVITE_TOKEN", "manager_master_key_2024")
+
 
 # ==================== Модели Pydantic ====================
 
-class UserCreate(BaseModel):
+class UserRegister(BaseModel):
     username: str
     password: str
     role: str  # 'hr' или 'hiring_manager'
@@ -124,7 +129,7 @@ async def login(credentials: HTTPBasicCredentials = Depends(security), db: Sessi
     user = db.query(User).filter(User.username == credentials.username).first()
     if not user or user.password_hash != credentials.password:
         raise HTTPException(status_code=401, detail="Неверные учетные данные")
-    
+
     return {
         "username": user.username,
         "role": user.role,
@@ -156,7 +161,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     return {"message": "Пользователь успешно создан", "username": new_user.username}
 
 
@@ -190,7 +195,7 @@ async def create_vacancy(
         vacancy_data.description,
         vacancy_data.requirements
     )
-    
+
     # Создаем вакансию
     new_vacancy = Vacancy(
         title=vacancy_data.title,
@@ -203,7 +208,7 @@ async def create_vacancy(
     db.add(new_vacancy)
     db.commit()
     db.refresh(new_vacancy)
-    
+
     # Загружаем вопросы из JSON файла
     questions_file = Path("data/questions.json")
     available_questions = []
@@ -211,7 +216,7 @@ async def create_vacancy(
         import json
         with open(questions_file, 'r', encoding='utf-8') as f:
             available_questions = json.load(f)
-    
+
     # Подбираем вопросы
     suggested_questions = await llm_service.suggest_questions_for_vacancy(
         detected_tags=detected_tags,
@@ -219,7 +224,7 @@ async def create_vacancy(
         available_questions=available_questions,
         limit=MAX_QUESTIONS_PER_INTERVIEW
     )
-    
+
     # Добавляем вопросы к вакансии
     for idx, q in enumerate(suggested_questions):
         # Проверяем, есть ли вопрос уже в БД
@@ -237,16 +242,16 @@ async def create_vacancy(
             db.add(existing_question)
             db.commit()
             db.refresh(existing_question)
-        
+
         session_question = SessionQuestion(
             vacancy_id=new_vacancy.id,
             question_id=existing_question.id,
             order_index=idx
         )
         db.add(session_question)
-    
+
     db.commit()
-    
+
     return {
         "id": new_vacancy.id,
         "title": new_vacancy.title,
@@ -265,11 +270,11 @@ async def get_vacancy_details(
     vacancy = db.query(Vacancy).filter(Vacancy.id == vacancy_id).first()
     if not vacancy:
         raise HTTPException(status_code=404, detail="Вакансия не найдена")
-    
+
     session_questions = db.query(SessionQuestion).filter(
         SessionQuestion.vacancy_id == vacancy_id
     ).order_by(SessionQuestion.order_index).all()
-    
+
     questions = []
     for sq in session_questions:
         q = db.query(Question).filter(Question.id == sq.question_id).first()
@@ -280,7 +285,7 @@ async def get_vacancy_details(
             "tags": q.tags,
             "competency": q.competency
         })
-    
+
     return {
         "id": vacancy.id,
         "title": vacancy.title,
@@ -303,10 +308,10 @@ async def approve_vacancy_questions(
     vacancy = db.query(Vacancy).filter(Vacancy.id == vacancy_id).first()
     if not vacancy:
         raise HTTPException(status_code=404, detail="Вакансия не найдена")
-    
+
     # Обновляем список вопросов (удаляем старые, добавляем новые)
     db.query(SessionQuestion).filter(SessionQuestion.vacancy_id == vacancy_id).delete()
-    
+
     for idx, q_id in enumerate(question_ids):
         session_question = SessionQuestion(
             vacancy_id=vacancy_id,
@@ -315,9 +320,9 @@ async def approve_vacancy_questions(
             is_approved=True
         )
         db.add(session_question)
-    
+
     db.commit()
-    
+
     return {"message": "Вопросы успешно аппрувлены", "count": len(question_ids)}
 
 
@@ -331,10 +336,10 @@ async def create_interview_session(
     vacancy = db.query(Vacancy).filter(Vacancy.id == interview_data.vacancy_id).first()
     if not vacancy:
         raise HTTPException(status_code=404, detail="Вакансия не найдена")
-    
+
     # Генерируем уникальный токен
     session_token = str(uuid.uuid4())
-    
+
     new_session = InterviewSession(
         vacancy_id=interview_data.vacancy_id,
         candidate_name=interview_data.candidate_name,
@@ -344,10 +349,10 @@ async def create_interview_session(
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
-    
+
     # Формируем ссылку для кандидата
     interview_url = f"/interview/{session_token}"
-    
+
     return {
         "session_id": new_session.id,
         "session_token": session_token,
@@ -362,15 +367,15 @@ async def get_interview_session(session_token: str, db: Session = Depends(get_db
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    
+
     if session.status == "completed":
         raise HTTPException(status_code=400, detail="Интервью уже завершено")
-    
+
     # Получаем вопросы для этой сессии
     session_questions = db.query(SessionQuestion).filter(
         SessionQuestion.vacancy_id == session.vacancy_id
     ).order_by(SessionQuestion.order_index).all()
-    
+
     questions = []
     for sq in session_questions:
         q = db.query(Question).filter(Question.id == sq.question_id).first()
@@ -378,7 +383,7 @@ async def get_interview_session(session_token: str, db: Session = Depends(get_db
             "session_question_id": sq.id,
             "question": q.question_text
         })
-    
+
     return {
         "session_id": session.id,
         "candidate_name": session.candidate_name,
@@ -394,11 +399,11 @@ async def start_interview(session_token: str, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    
+
     session.status = "in_progress"
     session.started_at = datetime.utcnow()
     db.commit()
-    
+
     return {"message": "Интервью начато", "session_id": session.id}
 
 
@@ -414,7 +419,7 @@ async def submit_answer(
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    
+
     # Сохраняем файл если есть
     video_path = None
     audio_path = None
@@ -422,24 +427,24 @@ async def submit_answer(
         file_extension = Path(file.filename).suffix if file.filename else ".webm"
         video_filename = f"answer_{session_id}_{question_id}{file_extension}"
         video_path = str(UPLOAD_DIR / video_filename)
-        
+
         with open(video_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        
+
         # Для MVP считаем что видео содержит и аудио
         audio_path = video_path
-    
+
     # Находим session_question
     session_question = db.query(SessionQuestion).filter(
         SessionQuestion.id == question_id,
         SessionQuestion.vacancy_id == session.vacancy_id
     ).first()
-    
+
     if not session_question:
         raise HTTPException(status_code=404, detail="Вопрос не найден")
-    
+
     question = db.query(Question).filter(Question.id == session_question.question_id).first()
-    
+
     # Создаем запись ответа
     answer = Answer(
         session_id=session_id,
@@ -454,12 +459,12 @@ async def submit_answer(
     db.add(answer)
     db.commit()
     db.refresh(answer)
-    
+
     # Асинхронно запускаем анализ ответа
     # (в реальном приложении это было бы через Celery/RQ)
     import asyncio
     asyncio.create_task(analyze_answer_background(answer.id, db))
-    
+
     return {
         "answer_id": answer.id,
         "message": "Ответ сохранен"
@@ -472,13 +477,13 @@ async def analyze_answer_background(answer_id: int, db: Session):
         answer = db.query(Answer).filter(Answer.id == answer_id).first()
         if not answer:
             return
-        
+
         # Получаем вопрос
         session_question = db.query(SessionQuestion).filter(
             SessionQuestion.id == answer.session_question_id
         ).first()
         question = db.query(Question).filter(Question.id == session_question.question_id).first()
-        
+
         # Анализируем ответ
         analysis = await llm_service.analyze_answer(
             question=question.question_text,
@@ -488,12 +493,12 @@ async def analyze_answer_background(answer_id: int, db: Session):
             red_flags=question.red_flags or [],
             candidate_transcript=answer.transcript_corrected
         )
-        
+
         # Сохраняем результат
         answer.score = analysis.get('score', 5.0)
         answer.llm_analysis = analysis
         db.commit()
-        
+
     except Exception as e:
         print(f"Ошибка анализа ответа {answer_id}: {e}")
 
@@ -504,14 +509,14 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    
+
     session.status = "completed"
     session.completed_at = datetime.utcnow()
     db.commit()
-    
+
     # Генерируем итоговый отчет
     answers = db.query(Answer).filter(Answer.session_id == session_id).all()
-    
+
     answers_data = []
     for ans in answers:
         answers_data.append({
@@ -522,13 +527,13 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
             "strengths": ans.llm_analysis.get('strengths', []) if ans.llm_analysis else [],
             "weaknesses": ans.llm_analysis.get('weaknesses', []) if ans.llm_analysis else []
         })
-    
+
     report_data = await llm_service.generate_final_report(
         vacancy_title=session.vacancy.title,
         vacancy_requirements=session.vacancy.requirements,
         answers_data=answers_data
     )
-    
+
     # Создаем отчет
     final_report = FinalReport(
         session_id=session_id,
@@ -543,7 +548,7 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     )
     db.add(final_report)
     db.commit()
-    
+
     return {
         "message": "Интервью завершено, отчет сгенерирован",
         "report_id": final_report.id
@@ -560,7 +565,7 @@ async def get_report(
     report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Отчет не найден")
-    
+
     # Получаем ответы
     answers = db.query(Answer).filter(Answer.session_id == session_id).all()
     answers_data = []
@@ -572,7 +577,7 @@ async def get_report(
             "video_path": f"/{ans.video_path}" if ans.video_path else None,
             "analysis": ans.llm_analysis
         })
-    
+
     return {
         "id": report.id,
         "session_id": report.session_id,
@@ -597,7 +602,7 @@ async def interview_page(session_token: str, request: Request, db: Session = Dep
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    
+
     return templates.TemplateResponse("interview.html", {
         "request": request,
         "session_token": session_token,
@@ -621,7 +626,7 @@ async def report_page(session_id: int, request: Request, db: Session = Depends(g
     report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Отчет не найден")
-    
+
     return templates.TemplateResponse("report.html", {
         "request": request,
         "report": report,

@@ -149,18 +149,29 @@
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('registerForm').classList.remove('hidden');
         }
-        
+
         function showLogin() {
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('loginForm').classList.remove('hidden');
         }
-        
+
+        function toggleInviteToken() {
+            // Можно добавить подсказки для разных ролей
+            const role = document.getElementById('regRole').value;
+            const tokenInput = document.getElementById('regInviteToken');
+            if (role === 'hr') {
+                tokenInput.placeholder = 'Введите HR токен приглашения';
+            } else {
+                tokenInput.placeholder = 'Введите токен приглашения для менеджера';
+            }
+        }
+
         // Вход
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
-            
+
             try {
                 const response = await fetch('/api/auth/login', {
                     method: 'POST',
@@ -169,7 +180,7 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
                     localStorage.setItem('user', JSON.stringify(data));
@@ -183,7 +194,7 @@
                 document.getElementById('loginError').textContent = 'Ошибка подключения к серверу';
             }
         });
-        
+
         // Регистрация
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -199,7 +210,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, password, full_name: fullName, role, invite_code: inviteCode })
                 });
-                
+
                 if (response.ok) {
                     alert('✅ Аккаунт успешно создан! Теперь войдите.');
                     showLogin();
