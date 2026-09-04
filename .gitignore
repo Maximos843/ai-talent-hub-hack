@@ -1,6 +1,8 @@
 ```
 # Database files
 *.db
+video_interview.db
+video_interview_mvp/video_interview.db
 
 # Python
 __pycache__/
