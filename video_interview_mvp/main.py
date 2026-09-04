@@ -131,6 +131,18 @@ async def login_page():
     return templates.TemplateResponse("login.html", {"request": {}})
 
 
+@app.get("/register", response_class=HTMLResponse)
+async def register_page():
+    """Страница регистрации"""
+    return templates.TemplateResponse("login.html", {"request": {}})
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    """Панель управления (требует авторизации)"""
+    return templates.TemplateResponse("dashboard.html", {"request": {}})
+
+
 @app.post("/api/auth/login")
 async def login(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
     """Вход в систему"""
@@ -294,6 +306,21 @@ async def get_vacancy_details(
             "competency": q.competency
         })
 
+    # Получаем сессии (кандидатов) для этой вакансии
+    sessions = db.query(InterviewSession).filter(
+        InterviewSession.vacancy_id == vacancy_id
+    ).all()
+    
+    sessions_data = [
+        {
+            "id": s.id,
+            "candidate_name": s.candidate_name,
+            "status": s.status,
+            "created_at": s.created_at.isoformat() if s.created_at else None
+        }
+        for s in sessions
+    ]
+
     return {
         "id": vacancy.id,
         "title": vacancy.title,
@@ -301,7 +328,8 @@ async def get_vacancy_details(
         "requirements": vacancy.requirements,
         "grade": vacancy.grade,
         "detected_tags": vacancy.detected_tags,
-        "questions": questions
+        "questions": questions,
+        "sessions": sessions_data
     }
 
 
