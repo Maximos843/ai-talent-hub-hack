@@ -47,7 +47,7 @@ class UserRegister(BaseModel):
     password: str
     role: str  # 'hr' или 'hiring_manager'
     full_name: Optional[str] = None
-    invite_token: str  # Токен приглашения
+    invite_code: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -84,7 +84,12 @@ class TranscriptCorrection(BaseModel):
     corrected_transcript: str
 
 
-# ==================== Утилиты ====================
+# ==================== Константы ====================
+
+INVITE_CODES = {
+    "hr": ["hr_master_key_2024", "hr_invite_2024"],
+    "hiring_manager": ["manager_master_key_2024", "hm_invite_2024"]
+}
 
 def get_current_user(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
     """Получение текущего пользователя"""
@@ -133,22 +138,20 @@ async def login(credentials: HTTPBasicCredentials = Depends(security), db: Sessi
 
 
 @app.post("/api/auth/register")
-async def register(user_data: UserRegister, db: Session = Depends(get_db)):
-    """Регистрация нового пользователя с проверкой токена приглашения"""
-    # Проверка токена приглашения в зависимости от роли
-    if user_data.role == 'hr':
-        if user_data.invite_token != HR_INVITE_TOKEN:
-            raise HTTPException(status_code=403, detail="Неверный токен приглашения для HR")
-    elif user_data.role == 'hiring_manager':
-        if user_data.invite_token != MANAGER_INVITE_TOKEN:
-            raise HTTPException(status_code=403, detail="Неверный токен приглашения для менеджера")
-    else:
-        raise HTTPException(status_code=400, detail="Недопустимая роль")
-
+async def register(user_data: UserCreate, db: Session = Depends(get_db)):
+    """Регистрация нового пользователя с проверкой пригласительного кода"""
     existing_user = db.query(User).filter(User.username == user_data.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
-
+    
+    # Проверка пригласительного кода
+    if not user_data.invite_code:
+        raise HTTPException(status_code=400, detail="Необходимо ввести пригласительный код")
+    
+    valid_codes = INVITE_CODES.get(user_data.role, [])
+    if user_data.invite_code not in valid_codes:
+        raise HTTPException(status_code=403, detail="Неверный пригласительный код")
+    
     new_user = User(
         username=user_data.username,
         password_hash=hash_password(user_data.password),

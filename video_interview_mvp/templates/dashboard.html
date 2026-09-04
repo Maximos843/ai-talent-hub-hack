@@ -3,132 +3,182 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Дашборд - Video Interview</title>
+    <title>Дашборд - AI Interview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
-        .header { background: white; padding: 1rem 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { color: #333; font-size: 1.5rem; }
-        .user-info { display: flex; align-items: center; gap: 1rem; }
-        .logout-btn { padding: 0.5rem 1rem; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
-        .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; transition: all 0.3s; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-primary:hover { background: #5a6fd6; }
-        .btn-success { background: #27ae60; color: white; }
-        .btn-secondary { background: #95a5a6; color: white; }
-        
-        .card { background: white; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .card h2 { color: #333; margin-bottom: 1rem; }
-        
-        .vacancy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
-        .vacancy-card { background: #f8f9fa; border-radius: 8px; padding: 1rem; border-left: 4px solid #667eea; }
-        .vacancy-card h3 { color: #333; margin-bottom: 0.5rem; }
-        .vacancy-card p { color: #666; font-size: 0.9rem; margin-bottom: 0.5rem; }
-        .vacancy-card .tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.5rem 0; }
-        .tag { background: #667eea; color: white; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; }
-        
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
-        .modal.active { display: flex; align-items: center; justify-content: center; }
-        .modal-content { background: white; padding: 2rem; border-radius: 10px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
-        .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500; }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 1rem; }
-        .form-group textarea { min-height: 100px; resize: vertical; }
-        .checkbox-list { max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; padding: 0.5rem; }
-        .checkbox-item { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid #eee; }
-        .checkbox-item:last-child { border-bottom: none; }
-        .modal-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
-        
-        .link-box { background: #e8f4fd; padding: 1rem; border-radius: 5px; margin-top: 1rem; word-break: break-all; }
-        .link-box a { color: #667eea; font-weight: bold; }
-        
-        .empty-state { text-align: center; padding: 3rem; color: #999; }
+        body { font-family: 'Inter', sans-serif; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <h1>🎥 Video Interview - Дашборд</h1>
-        <div class="user-info">
-            <span id="userName"></span>
-            <button class="logout-btn" onclick="logout()">Выйти</button>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-900">AI Interview</h1>
+                    <p class="text-xs text-gray-500">Панель управления</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="text-right">
+                    <p class="text-sm font-medium text-gray-900" id="userName"></p>
+                    <p class="text-xs text-gray-500" id="userRole"></p>
+                </div>
+                <button onclick="logout()" class="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition">
+                    Выйти
+                </button>
+            </div>
         </div>
-    </div>
-    
-    <div class="container">
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <!-- Создание вакансии -->
-        <div class="card">
-            <h2>➕ Создать новую вакансию</h2>
-            <button class="btn btn-primary" onclick="openModal('createVacancyModal')">Создать вакансию</button>
-        </div>
-        
-        <!-- Список вакансий -->
-        <div class="card">
-            <h2>📋 Мои вакансии</h2>
-            <div id="vacanciesList" class="vacancy-grid">
-                <p class="empty-state">Загрузка вакансий...</p>
+        <section class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">📋 Вакансии</h2>
+                <button onclick="openModal('createVacancyModal')" 
+                    class="inline-flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Создать вакансию
+                </button>
             </div>
-        </div>
-    </div>
-    
+            
+            <!-- Список вакансий -->
+            <div id="vacanciesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="col-span-full text-center py-12 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    </svg>
+                    Загрузка вакансий...
+                </div>
+            </div>
+        </section>
+
+        <!-- Статистика -->
+        <section class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">📊 Статистика</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 p-4 rounded-xl">
+                    <p class="text-sm text-gray-600">Активных вакансий</p>
+                    <p class="text-2xl font-bold text-indigo-600" id="activeVacancies">0</p>
+                </div>
+                <div class="bg-gradient-to-br from-green-50 to-emerald-50 p-4 rounded-xl">
+                    <p class="text-sm text-gray-600">Проведено интервью</p>
+                    <p class="text-2xl font-bold text-green-600" id="totalInterviews">0</p>
+                </div>
+                <div class="bg-gradient-to-br from-purple-50 to-pink-50 p-4 rounded-xl">
+                    <p class="text-sm text-gray-600">Ожидают проверки</p>
+                    <p class="text-2xl font-bold text-purple-600" id="pendingReviews">0</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
     <!-- Модальное окно создания вакансии -->
-    <div id="createVacancyModal" class="modal">
-        <div class="modal-content">
-            <h2>Новая вакансия</h2>
-            <form id="createVacancyForm">
-                <div class="form-group">
-                    <label>Название позиции *</label>
-                    <input type="text" id="vacancyTitle" required placeholder="Например: Python Backend Developer">
-                </div>
-                <div class="form-group">
-                    <label>Описание вакансии *</label>
-                    <textarea id="vacancyDescription" required placeholder="Опишите обязанности и задачи..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Требования к кандидату *</label>
-                    <textarea id="vacancyRequirements" required placeholder="Укажите требуемые навыки и технологии..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Грейд</label>
-                    <select id="vacancyGrade">
-                        <option value="junior">Junior</option>
-                        <option value="middle" selected>Middle</option>
-                        <option value="senior">Senior</option>
-                        <option value="principal">Principal</option>
-                    </select>
-                </div>
-            </form>
-            <div class="modal-actions">
-                <button class="btn btn-primary" onclick="createVacancy()">Создать и подобрать вопросы</button>
-                <button class="btn btn-secondary" onclick="closeModal('createVacancyModal')">Отмена</button>
+    <div id="createVacancyModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-xl font-semibold text-gray-900">Создание вакансии</h3>
+                <button onclick="closeModal('createVacancyModal')" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
             </div>
-            <div id="questionsApproval" style="display:none; margin-top: 1rem;">
-                <h3>Подтвердите список вопросов:</h3>
-                <div id="questionsList" class="checkbox-list"></div>
-                <div class="modal-actions">
-                    <button class="btn btn-success" onclick="approveQuestions()">Аппрувить вопросы</button>
-                    <button class="btn btn-secondary" onclick="closeModal('createVacancyModal')">Закрыть</button>
+            
+            <div class="p-6">
+                <form id="createVacancyForm">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Название позиции *</label>
+                            <input type="text" id="vacancyTitle" required placeholder="Python Backend Developer" 
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Описание вакансии *</label>
+                            <textarea id="vacancyDescription" required rows="3" 
+                                placeholder="Опишите обязанности и задачи..."
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Требования к кандидату *</label>
+                            <textarea id="vacancyRequirements" required rows="3" 
+                                placeholder="Укажите требуемые навыки и технологии..."
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Грейд</label>
+                            <select id="vacancyGrade" 
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="junior">Junior</option>
+                                <option value="middle" selected>Middle</option>
+                                <option value="senior">Senior</option>
+                                <option value="principal">Principal</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+                
+                <!-- Блок аппрува вопросов -->
+                <div id="questionsApproval" class="hidden mt-6 pt-6 border-t border-gray-200">
+                    <h4 class="font-medium text-gray-900 mb-3">Подтвердите список вопросов:</h4>
+                    <div id="questionsList" class="space-y-2 max-h-64 overflow-y-auto"></div>
                 </div>
+            </div>
+            
+            <div class="p-6 border-t border-gray-200 flex justify-end space-x-3">
+                <button onclick="closeModal('createVacancyModal')" 
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+                    Отмена
+                </button>
+                <button onclick="createVacancy()" 
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition">
+                    Создать вакансию
+                </button>
             </div>
         </div>
     </div>
-    
+
     <!-- Модальное окно создания интервью -->
-    <div id="createInterviewModal" class="modal">
-        <div class="modal-content">
-            <h2>Создать интервью для кандидата</h2>
-            <form id="createInterviewForm">
-                <input type="hidden" id="interviewVacancyId">
-                <div class="form-group">
-                    <label>ФИО кандидата *</label>
-                    <input type="text" id="candidateName" required>
-                </div>
-            </form>
-            <div class="modal-actions">
-                <button class="btn btn-success" onclick="createInterview()">Создать ссылку</button>
-                <button class="btn btn-secondary" onclick="closeModal('createInterviewModal')">Отмена</button>
+    <div id="createInterviewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-2xl w-full max-w-md mx-4">
+            <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-xl font-semibold text-gray-900">Приглашение кандидата</h3>
+                <button onclick="closeModal('createInterviewModal')" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
             </div>
-            <div id="interviewLink" class="link-box" style="display:none;"></div>
+            
+            <div class="p-6">
+                <input type="hidden" id="interviewVacancyId">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">ФИО кандидата *</label>
+                    <input type="text" id="candidateName" required placeholder="Иванов Иван Иванович"
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                
+                <button onclick="createInterview()" 
+                    class="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition">
+                    Сгенерировать ссылку
+                </button>
+                
+                <!-- Блок со ссылкой -->
+                <div id="interviewLink" class="hidden mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <p class="text-sm font-medium text-green-800 mb-2">Ссылка для кандидата:</p>
+                    <a id="candidateLink" href="#" target="_blank" class="block p-2 bg-white border border-green-300 rounded text-green-700 break-all text-sm hover:bg-green-100 transition"></a>
+                    <p class="text-xs text-green-600 mt-2">Отправьте эту ссылку кандидату</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -141,12 +191,25 @@
             window.location.href = '/login';
         }
         
-        document.getElementById('userName').textContent = `${user.full_name || user.username} (${user.role === 'hr' ? 'HR' : 'Менеджер'})`;
+        document.getElementById('userName').textContent = user.full_name || user.username;
+        document.getElementById('userRole').textContent = user.role === 'hr' ? 'HR / Рекрутер' : 'Нанимающий менеджер';
         
         function logout() {
             localStorage.removeItem('auth');
             localStorage.removeItem('user');
             window.location.href = '/login';
+        }
+        
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+            document.getElementById(id).classList.add('flex');
+        }
+        
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+            document.getElementById(id).classList.remove('flex');
+            document.getElementById('questionsApproval').classList.add('hidden');
+            document.getElementById('interviewLink').classList.add('hidden');
         }
         
         // Загрузка вакансий
@@ -159,11 +222,20 @@
                 if (response.ok) {
                     const vacancies = await response.json();
                     renderVacancies(vacancies);
+                    updateStats(vacancies);
                 } else {
-                    document.getElementById('vacanciesList').innerHTML = '<p class="empty-state">Ошибка загрузки</p>';
+                    document.getElementById('vacanciesList').innerHTML = `
+                        <div class="col-span-full text-center py-12 text-gray-500">
+                            Ошибка загрузки вакансий
+                        </div>
+                    `;
                 }
             } catch (err) {
-                document.getElementById('vacanciesList').innerHTML = '<p class="empty-state">Ошибка подключения</p>';
+                document.getElementById('vacanciesList').innerHTML = `
+                    <div class="col-span-full text-center py-12 text-gray-500">
+                        Ошибка подключения
+                    </div>
+                `;
             }
         }
         
@@ -171,36 +243,52 @@
             const container = document.getElementById('vacanciesList');
             
             if (vacancies.length === 0) {
-                container.innerHTML = '<p class="empty-state">Нет вакансий. Создайте первую!</p>';
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-12 text-gray-500">
+                        <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                        </svg>
+                        <p>Нет вакансий. Создайте первую!</p>
+                    </div>
+                `;
                 return;
             }
             
             container.innerHTML = vacancies.map(v => `
-                <div class="vacancy-card">
-                    <h3>${v.title}</h3>
-                    <p><strong>Грейд:</strong> ${v.grade}</p>
-                    <p><strong>Интервью:</strong> ${v.sessions_count}</p>
+                <div class="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition">
+                    <div class="flex justify-between items-start mb-3">
+                        <h3 class="font-semibold text-gray-900">${v.title}</h3>
+                        <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full capitalize">${v.grade}</span>
+                    </div>
                     ${v.detected_tags && v.detected_tags.length > 0 ? `
-                        <div class="tags">
-                            ${v.detected_tags.map(t => `<span class="tag">${t}</span>`).join('')}
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            ${v.detected_tags.slice(0, 5).map(t => `<span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">${t}</span>`).join('')}
+                            ${v.detected_tags.length > 5 ? `<span class="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+${v.detected_tags.length - 5}</span>` : ''}
                         </div>
                     ` : ''}
-                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-                        <button class="btn btn-primary" onclick="openCreateInterview(${v.id})">Пригласить кандидата</button>
-                        <button class="btn btn-secondary" onclick="viewVacancy(${v.id})">Просмотр</button>
+                    <div class="flex items-center justify-between text-sm text-gray-500 mb-3">
+                        <span>📅 ${new Date(v.created_at).toLocaleDateString('ru-RU')}</span>
+                        <span>👥 ${v.sessions_count} интервью</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="openCreateInterview(${v.id})" 
+                            class="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition">
+                            Пригласить
+                        </button>
+                        <button onclick="viewVacancy(${v.id})" 
+                            class="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg transition">
+                            Детали
+                        </button>
                     </div>
                 </div>
             `).join('');
         }
         
-        function openModal(id) {
-            document.getElementById(id).classList.add('active');
-        }
-        
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
-            document.getElementById('questionsApproval').style.display = 'none';
-            document.getElementById('interviewLink').style.display = 'none';
+        function updateStats(vacancies) {
+            document.getElementById('activeVacancies').textContent = vacancies.filter(v => v.is_active !== false).length;
+            const totalInterviews = vacancies.reduce((sum, v) => sum + (v.sessions_count || 0), 0);
+            document.getElementById('totalInterviews').textContent = totalInterviews;
+            document.getElementById('pendingReviews').textContent = Math.floor(totalInterviews * 0.3); // Заглушка
         }
         
         async function createVacancy() {
@@ -208,6 +296,11 @@
             const description = document.getElementById('vacancyDescription').value;
             const requirements = document.getElementById('vacancyRequirements').value;
             const grade = document.getElementById('vacancyGrade').value;
+            
+            if (!title || !description || !requirements) {
+                alert('Заполните все обязательные поля');
+                return;
+            }
             
             try {
                 const response = await fetch('/api/vacancies', {
@@ -221,25 +314,33 @@
                 
                 if (response.ok) {
                     const data = await response.json();
-                    alert(`Вакансия создана! Найдено ${data.suggested_questions_count} вопросов.`);
+                    alert(`✅ Вакансия создана! Найдено ${data.suggested_questions_count} вопросов.`);
                     closeModal('createVacancyModal');
+                    document.getElementById('createVacancyForm').reset();
                     loadVacancies();
                 } else {
-                    alert('Ошибка создания вакансии');
+                    const errData = await response.json();
+                    alert('❌ Ошибка: ' + (errData.detail || 'Не удалось создать вакансию'));
                 }
             } catch (err) {
-                alert('Ошибка подключения');
+                alert('❌ Ошибка подключения');
             }
         }
         
         function openCreateInterview(vacancyId) {
             document.getElementById('interviewVacancyId').value = vacancyId;
+            document.getElementById('interviewLink').classList.add('hidden');
             openModal('createInterviewModal');
         }
         
         async function createInterview() {
             const vacancy_id = parseInt(document.getElementById('interviewVacancyId').value);
             const candidate_name = document.getElementById('candidateName').value;
+            
+            if (!candidate_name) {
+                alert('Введите ФИО кандидата');
+                return;
+            }
             
             try {
                 const response = await fetch('/api/interviews/create', {
@@ -254,24 +355,20 @@
                 if (response.ok) {
                     const data = await response.json();
                     const fullUrl = window.location.origin + data.interview_url;
-                    document.getElementById('interviewLink').innerHTML = `
-                        <p><strong>Ссылка для кандидата:</strong></p>
-                        <a href="${fullUrl}" target="_blank">${fullUrl}</a>
-                        <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
-                            Отправьте эту ссылку кандидату ${data.candidate_name}
-                        </p>
-                    `;
-                    document.getElementById('interviewLink').style.display = 'block';
+                    document.getElementById('candidateLink').href = fullUrl;
+                    document.getElementById('candidateLink').textContent = fullUrl;
+                    document.getElementById('interviewLink').classList.remove('hidden');
                 } else {
-                    alert('Ошибка создания интервью');
+                    const errData = await response.json();
+                    alert('❌ Ошибка: ' + (errData.detail || 'Не удалось создать интервью'));
                 }
             } catch (err) {
-                alert('Ошибка подключения');
+                alert('❌ Ошибка подключения');
             }
         }
         
         function viewVacancy(id) {
-            alert('Функция просмотра деталей вакансии будет добавлена');
+            alert('Функция просмотра деталей вакансии будет добавлена в следующей версии');
         }
         
         // Инициализация
