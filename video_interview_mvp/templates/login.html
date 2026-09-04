@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход - Video Interview MVP</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .container { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); width: 100%; max-width: 400px; }
+        h1 { text-align: center; color: #333; margin-bottom: 1.5rem; font-size: 1.5rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500; }
+        input, select { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 1rem; }
+        input:focus, select:focus { outline: none; border-color: #667eea; }
+        button { width: 100%; padding: 0.75rem; background: #667eea; color: white; border: none; border-radius: 5px; font-size: 1rem; cursor: pointer; transition: background 0.3s; }
+        button:hover { background: #5a6fd6; }
+        .toggle-link { text-align: center; margin-top: 1rem; color: #666; }
+        .toggle-link a { color: #667eea; text-decoration: none; }
+        .hidden { display: none; }
+        .error { color: #e74c3c; font-size: 0.875rem; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Video Interview</h1>
+        
+        <!-- Форма входа -->
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="loginUsername">Имя пользователя</label>
+                <input type="text" id="loginUsername" required>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Пароль</label>
+                <input type="password" id="loginPassword" required>
+            </div>
+            <button type="submit">Войти</button>
+            <p class="error" id="loginError"></p>
+            <div class="toggle-link">
+                Нет аккаунта? <a href="#" onclick="showRegister()">Зарегистрироваться</a>
+            </div>
+        </form>
+        
+        <!-- Форма регистрации -->
+        <form id="registerForm" class="hidden">
+            <div class="form-group">
+                <label for="regUsername">Имя пользователя</label>
+                <input type="text" id="regUsername" required>
+            </div>
+            <div class="form-group">
+                <label for="regPassword">Пароль</label>
+                <input type="password" id="regPassword" required>
+            </div>
+            <div class="form-group">
+                <label for="regFullName">ФИО</label>
+                <input type="text" id="regFullName">
+            </div>
+            <div class="form-group">
+                <label for="regRole">Роль</label>
+                <select id="regRole" required>
+                    <option value="hr">HR / Рекрутер</option>
+                    <option value="hiring_manager">Нанимающий менеджер</option>
+                </select>
+            </div>
+            <button type="submit">Зарегистрироваться</button>
+            <p class="error" id="registerError"></p>
+            <div class="toggle-link">
+                Уже есть аккаунт? <a href="#" onclick="showLogin()">Войти</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function showRegister() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+        }
+        
+        function showLogin() {
+            document.getElementById('registerForm').classList.add('hidden');
+            document.getElementById('loginForm').classList.remove('hidden');
+        }
+        
+        // Вход
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Basic ' + btoa(username + ':' + password),
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('user', JSON.stringify(data));
+                    localStorage.setItem('auth', btoa(username + ':' + password));
+                    window.location.href = '/dashboard';
+                } else {
+                    document.getElementById('loginError').textContent = 'Неверные учетные данные';
+                }
+            } catch (err) {
+                document.getElementById('loginError').textContent = 'Ошибка подключения';
+            }
+        });
+        
+        // Регистрация
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+            const fullName = document.getElementById('regFullName').value;
+            const role = document.getElementById('regRole').value;
+            
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, full_name: fullName, role })
+                });
+                
+                if (response.ok) {
+                    alert('Аккаунт создан! Теперь войдите.');
+                    showLogin();
+                } else {
+                    const data = await response.json();
+                    document.getElementById('registerError').textContent = data.detail || 'Ошибка регистрации';
+                }
+            } catch (err) {
+                document.getElementById('registerError').textContent = 'Ошибка подключения';
+            }
+        });
+    </script>
+</body>
+</html>
