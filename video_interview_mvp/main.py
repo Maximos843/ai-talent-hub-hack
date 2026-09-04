@@ -55,6 +55,14 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str  # 'hr' или 'hiring_manager'
+    full_name: Optional[str] = None
+    invite_code: Optional[str] = None
+
+
 class VacancyCreate(BaseModel):
     title: str
     description: str
