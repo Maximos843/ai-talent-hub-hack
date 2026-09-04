@@ -209,7 +209,14 @@ async def create_vacancy(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Создание новой вакансии с авто-подбором вопросов"""
+    """Создание новой вакансии с авто-подбором вопросов (только для HR)"""
+    # Проверка роли - только HR может создавать вакансии
+    if current_user.role != 'hr':
+        raise HTTPException(
+            status_code=403, 
+            detail="Только HR-менеджеры могут создавать вакансии. Нанимающие менеджеры могут только просматривать результаты."
+        )
+    
     # Извлекаем теги из описания
     detected_tags = await llm_service.extract_tags_from_vacancy(
         vacancy_data.description,
@@ -368,7 +375,14 @@ async def create_interview_session(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Создание сессии интервью для кандидата"""
+    """Создание сессии интервью для кандидата (только для HR)"""
+    # Проверка роли - только HR может создавать интервью
+    if current_user.role != 'hr':
+        raise HTTPException(
+            status_code=403, 
+            detail="Только HR-менеджеры могут создавать интервью. Нанимающие менеджеры могут только просматривать результаты."
+        )
+    
     vacancy = db.query(Vacancy).filter(Vacancy.id == interview_data.vacancy_id).first()
     if not vacancy:
         raise HTTPException(status_code=404, detail="Вакансия не найдена")

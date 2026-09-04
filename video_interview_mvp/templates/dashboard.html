@@ -191,8 +191,15 @@
             window.location.href = '/login';
         }
         
+        const isHR = user.role === 'hr';
         document.getElementById('userName').textContent = user.full_name || user.username;
-        document.getElementById('userRole').textContent = user.role === 'hr' ? 'HR / Рекрутер' : 'Нанимающий менеджер';
+        document.getElementById('userRole').textContent = isHR ? 'HR / Рекрутер' : 'Нанимающий менеджер';
+        
+        // Скрываем кнопку создания вакансии для нанимающих менеджеров
+        if (!isHR) {
+            const createBtn = document.querySelector('button[onclick="openModal(\'createVacancyModal\')"]');
+            if (createBtn) createBtn.style.display = 'none';
+        }
         
         function logout() {
             localStorage.removeItem('auth');
@@ -271,10 +278,12 @@
                         <span>👥 ${v.sessions_count} интервью</span>
                     </div>
                     <div class="flex gap-2">
+                        ${isHR ? `
                         <button onclick="openCreateInterview(${v.id})" 
                             class="flex-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg transition">
                             Пригласить
                         </button>
+                        ` : ''}
                         <button onclick="viewVacancy(${v.id})" 
                             class="flex-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg transition">
                             Детали
