@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Дашборд - Video Interview</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
+        .header { background: white; padding: 1rem 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { color: #333; font-size: 1.5rem; }
+        .user-info { display: flex; align-items: center; gap: 1rem; }
+        .logout-btn { padding: 0.5rem 1rem; background: #e74c3c; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; transition: all 0.3s; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5a6fd6; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-secondary { background: #95a5a6; color: white; }
+        
+        .card { background: white; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .card h2 { color: #333; margin-bottom: 1rem; }
+        
+        .vacancy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+        .vacancy-card { background: #f8f9fa; border-radius: 8px; padding: 1rem; border-left: 4px solid #667eea; }
+        .vacancy-card h3 { color: #333; margin-bottom: 0.5rem; }
+        .vacancy-card p { color: #666; font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .vacancy-card .tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.5rem 0; }
+        .tag { background: #667eea; color: white; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.75rem; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 2rem; border-radius: 10px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; color: #555; font-weight: 500; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 1rem; }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .checkbox-list { max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; padding: 0.5rem; }
+        .checkbox-item { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid #eee; }
+        .checkbox-item:last-child { border-bottom: none; }
+        .modal-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
+        
+        .link-box { background: #e8f4fd; padding: 1rem; border-radius: 5px; margin-top: 1rem; word-break: break-all; }
+        .link-box a { color: #667eea; font-weight: bold; }
+        
+        .empty-state { text-align: center; padding: 3rem; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 Video Interview - Дашборд</h1>
+        <div class="user-info">
+            <span id="userName"></span>
+            <button class="logout-btn" onclick="logout()">Выйти</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- Создание вакансии -->
+        <div class="card">
+            <h2>➕ Создать новую вакансию</h2>
+            <button class="btn btn-primary" onclick="openModal('createVacancyModal')">Создать вакансию</button>
+        </div>
+        
+        <!-- Список вакансий -->
+        <div class="card">
+            <h2>📋 Мои вакансии</h2>
+            <div id="vacanciesList" class="vacancy-grid">
+                <p class="empty-state">Загрузка вакансий...</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Модальное окно создания вакансии -->
+    <div id="createVacancyModal" class="modal">
+        <div class="modal-content">
+            <h2>Новая вакансия</h2>
+            <form id="createVacancyForm">
+                <div class="form-group">
+                    <label>Название позиции *</label>
+                    <input type="text" id="vacancyTitle" required placeholder="Например: Python Backend Developer">
+                </div>
+                <div class="form-group">
+                    <label>Описание вакансии *</label>
+                    <textarea id="vacancyDescription" required placeholder="Опишите обязанности и задачи..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Требования к кандидату *</label>
+                    <textarea id="vacancyRequirements" required placeholder="Укажите требуемые навыки и технологии..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Грейд</label>
+                    <select id="vacancyGrade">
+                        <option value="junior">Junior</option>
+                        <option value="middle" selected>Middle</option>
+                        <option value="senior">Senior</option>
+                        <option value="principal">Principal</option>
+                    </select>
+                </div>
+            </form>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="createVacancy()">Создать и подобрать вопросы</button>
+                <button class="btn btn-secondary" onclick="closeModal('createVacancyModal')">Отмена</button>
+            </div>
+            <div id="questionsApproval" style="display:none; margin-top: 1rem;">
+                <h3>Подтвердите список вопросов:</h3>
+                <div id="questionsList" class="checkbox-list"></div>
+                <div class="modal-actions">
+                    <button class="btn btn-success" onclick="approveQuestions()">Аппрувить вопросы</button>
+                    <button class="btn btn-secondary" onclick="closeModal('createVacancyModal')">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Модальное окно создания интервью -->
+    <div id="createInterviewModal" class="modal">
+        <div class="modal-content">
+            <h2>Создать интервью для кандидата</h2>
+            <form id="createInterviewForm">
+                <input type="hidden" id="interviewVacancyId">
+                <div class="form-group">
+                    <label>ФИО кандидата *</label>
+                    <input type="text" id="candidateName" required>
+                </div>
+            </form>
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="createInterview()">Создать ссылку</button>
+                <button class="btn btn-secondary" onclick="closeModal('createInterviewModal')">Отмена</button>
+            </div>
+            <div id="interviewLink" class="link-box" style="display:none;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Проверка авторизации
+        const auth = localStorage.getItem('auth');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        if (!auth) {
+            window.location.href = '/login';
+        }
+        
+        document.getElementById('userName').textContent = `${user.full_name || user.username} (${user.role === 'hr' ? 'HR' : 'Менеджер'})`;
+        
+        function logout() {
+            localStorage.removeItem('auth');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+        }
+        
+        // Загрузка вакансий
+        async function loadVacancies() {
+            try {
+                const response = await fetch('/api/vacancies', {
+                    headers: { 'Authorization': 'Basic ' + auth }
+                });
+                
+                if (response.ok) {
+                    const vacancies = await response.json();
+                    renderVacancies(vacancies);
+                } else {
+                    document.getElementById('vacanciesList').innerHTML = '<p class="empty-state">Ошибка загрузки</p>';
+                }
+            } catch (err) {
+                document.getElementById('vacanciesList').innerHTML = '<p class="empty-state">Ошибка подключения</p>';
+            }
+        }
+        
+        function renderVacancies(vacancies) {
+            const container = document.getElementById('vacanciesList');
+            
+            if (vacancies.length === 0) {
+                container.innerHTML = '<p class="empty-state">Нет вакансий. Создайте первую!</p>';
+                return;
+            }
+            
+            container.innerHTML = vacancies.map(v => `
+                <div class="vacancy-card">
+                    <h3>${v.title}</h3>
+                    <p><strong>Грейд:</strong> ${v.grade}</p>
+                    <p><strong>Интервью:</strong> ${v.sessions_count}</p>
+                    ${v.detected_tags && v.detected_tags.length > 0 ? `
+                        <div class="tags">
+                            ${v.detected_tags.map(t => `<span class="tag">${t}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                        <button class="btn btn-primary" onclick="openCreateInterview(${v.id})">Пригласить кандидата</button>
+                        <button class="btn btn-secondary" onclick="viewVacancy(${v.id})">Просмотр</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function openModal(id) {
+            document.getElementById(id).classList.add('active');
+        }
+        
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+            document.getElementById('questionsApproval').style.display = 'none';
+            document.getElementById('interviewLink').style.display = 'none';
+        }
+        
+        async function createVacancy() {
+            const title = document.getElementById('vacancyTitle').value;
+            const description = document.getElementById('vacancyDescription').value;
+            const requirements = document.getElementById('vacancyRequirements').value;
+            const grade = document.getElementById('vacancyGrade').value;
+            
+            try {
+                const response = await fetch('/api/vacancies', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': 'Basic ' + auth,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title, description, requirements, grade })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`Вакансия создана! Найдено ${data.suggested_questions_count} вопросов.`);
+                    closeModal('createVacancyModal');
+                    loadVacancies();
+                } else {
+                    alert('Ошибка создания вакансии');
+                }
+            } catch (err) {
+                alert('Ошибка подключения');
+            }
+        }
+        
+        function openCreateInterview(vacancyId) {
+            document.getElementById('interviewVacancyId').value = vacancyId;
+            openModal('createInterviewModal');
+        }
+        
+        async function createInterview() {
+            const vacancy_id = parseInt(document.getElementById('interviewVacancyId').value);
+            const candidate_name = document.getElementById('candidateName').value;
+            
+            try {
+                const response = await fetch('/api/interviews/create', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': 'Basic ' + auth,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ vacancy_id, candidate_name })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const fullUrl = window.location.origin + data.interview_url;
+                    document.getElementById('interviewLink').innerHTML = `
+                        <p><strong>Ссылка для кандидата:</strong></p>
+                        <a href="${fullUrl}" target="_blank">${fullUrl}</a>
+                        <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
+                            Отправьте эту ссылку кандидату ${data.candidate_name}
+                        </p>
+                    `;
+                    document.getElementById('interviewLink').style.display = 'block';
+                } else {
+                    alert('Ошибка создания интервью');
+                }
+            } catch (err) {
+                alert('Ошибка подключения');
+            }
+        }
+        
+        function viewVacancy(id) {
+            alert('Функция просмотра деталей вакансии будет добавлена');
+        }
+        
+        // Инициализация
+        loadVacancies();
+    </script>
+</body>
+</html>
