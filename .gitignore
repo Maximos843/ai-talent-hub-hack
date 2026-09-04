@@ -21,6 +21,11 @@ wheels/
 .installed.cfg
 *.egg
 
+
+# Database files
+*.db
+video_interview_mvp/*.db
+
 # Virtual environments
 venv/
 env/
@@ -55,4 +60,40 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Dependencies
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
 ```

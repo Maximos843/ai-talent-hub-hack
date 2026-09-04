@@ -24,7 +24,7 @@
 <body>
     <div class="container">
         <h1>🎥 Video Interview</h1>
-        
+
         <!-- Форма входа -->
         <form id="loginForm">
             <div class="form-group">
@@ -41,7 +41,7 @@
                 Нет аккаунта? <a href="#" onclick="showRegister()">Зарегистрироваться</a>
             </div>
         </form>
-        
+
         <!-- Форма регистрации -->
         <form id="registerForm" class="hidden">
             <div class="form-group">
@@ -58,10 +58,14 @@
             </div>
             <div class="form-group">
                 <label for="regRole">Роль</label>
-                <select id="regRole" required>
+                <select id="regRole" required onchange="toggleInviteToken()">
                     <option value="hr">HR / Рекрутер</option>
                     <option value="hiring_manager">Нанимающий менеджер</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label for="regInviteToken">Токен приглашения</label>
+                <input type="text" id="regInviteToken" required placeholder="Введите токен, полученный от администратора">
             </div>
             <button type="submit">Зарегистрироваться</button>
             <p class="error" id="registerError"></p>
@@ -76,18 +80,29 @@
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('registerForm').classList.remove('hidden');
         }
-        
+
         function showLogin() {
             document.getElementById('registerForm').classList.add('hidden');
             document.getElementById('loginForm').classList.remove('hidden');
         }
-        
+
+        function toggleInviteToken() {
+            // Можно добавить подсказки для разных ролей
+            const role = document.getElementById('regRole').value;
+            const tokenInput = document.getElementById('regInviteToken');
+            if (role === 'hr') {
+                tokenInput.placeholder = 'Введите HR токен приглашения';
+            } else {
+                tokenInput.placeholder = 'Введите токен приглашения для менеджера';
+            }
+        }
+
         // Вход
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
-            
+
             try {
                 const response = await fetch('/api/auth/login', {
                     method: 'POST',
@@ -96,7 +111,7 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                
+
                 if (response.ok) {
                     const data = await response.json();
                     localStorage.setItem('user', JSON.stringify(data));
@@ -109,7 +124,7 @@
                 document.getElementById('loginError').textContent = 'Ошибка подключения';
             }
         });
-        
+
         // Регистрация
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -117,14 +132,15 @@
             const password = document.getElementById('regPassword').value;
             const fullName = document.getElementById('regFullName').value;
             const role = document.getElementById('regRole').value;
-            
+            const inviteToken = document.getElementById('regInviteToken').value;
+
             try {
                 const response = await fetch('/api/auth/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password, full_name: fullName, role })
+                    body: JSON.stringify({ username, password, full_name: fullName, role, invite_token: inviteToken })
                 });
-                
+
                 if (response.ok) {
                     alert('Аккаунт создан! Теперь войдите.');
                     showLogin();

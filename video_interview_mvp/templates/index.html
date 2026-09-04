@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview | Будущее найма</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-text {
+            background: linear-gradient(90deg, #4F46E5, #06B6D4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero-bg {
+            background-image: radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.1) 0%, transparent 20%),
+                              radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.1) 0%, transparent 20%);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        .animate-float { animation: float 6s ease-in-out infinite; }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 hero-bg min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="w-full py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
+        <div class="text-2xl font-bold tracking-tight">AI<span class="text-indigo-600">Interview</span></div>
+        <div class="space-x-6 hidden md:block">
+            <a href="#features" class="hover:text-indigo-600 transition">Возможности</a>
+            <a href="#how-it-works" class="hover:text-indigo-600 transition">Как это работает</a>
+        </div>
+        <a href="/login" class="bg-indigo-600 text-white px-6 py-2 rounded-full font-medium hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/30">
+            Войти в систему
+        </a>
+    </nav>
+
+    <!-- Hero Section -->
+    <main class="flex-grow flex items-center justify-center px-6 pt-10 pb-20">
+        <div class="max-w-5xl mx-auto grid md:grid-cols-2 gap-12 items-center">
+            <div class="space-y-8">
+                <div class="inline-block px-4 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-sm font-semibold">
+                    🚀 MVP Уже доступен
+                </div>
+                <h1 class="text-5xl md:text-6xl font-extrabold leading-tight">
+                    Найм без границ <br>
+                    <span class="gradient-text">с силой ИИ</span>
+                </h1>
+                <p class="text-lg text-slate-600 leading-relaxed">
+                    Автоматизируйте технические интервью. Получайте глубокий анализ навыков кандидата за минуты, а не часы. Экономьте до 80% времени рекрутеров.
+                </p>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <a href="/register" class="flex justify-center items-center px-8 py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition shadow-xl shadow-indigo-500/20">
+                        Попробовать бесплатно
+                    </a>
+                    <a href="#demo" class="flex justify-center items-center px-8 py-4 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold text-lg hover:bg-slate-50 transition">
+                        Смотреть демо
+                    </a>
+                </div>
+                <div class="flex items-center gap-4 text-sm text-slate-500">
+                    <div class="flex -space-x-2">
+                        <div class="w-8 h-8 rounded-full bg-slate-300 border-2 border-white"></div>
+                        <div class="w-8 h-8 rounded-full bg-slate-400 border-2 border-white"></div>
+                        <div class="w-8 h-8 rounded-full bg-slate-500 border-2 border-white"></div>
+                    </div>
+                    <span>Уже используют в ведущих IT-компаниях</span>
+                </div>
+            </div>
+            
+            <div class="relative animate-float hidden md:block">
+                <div class="absolute inset-0 bg-gradient-to-tr from-indigo-500 to-cyan-400 rounded-3xl blur-2xl opacity-20"></div>
+                <div class="relative glass-card rounded-3xl p-6 shadow-2xl">
+                    <div class="flex items-center gap-4 mb-6 border-b border-slate-100 pb-4">
+                        <div class="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-2xl">👨‍💻</div>
+                        <div>
+                            <div class="font-bold">Кандидат: Алексей П.</div>
+                            <div class="text-xs text-slate-500">Senior Python Developer</div>
+                        </div>
+                        <div class="ml-auto text-green-500 font-bold text-xl">92/100</div>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="bg-slate-50 p-4 rounded-xl">
+                            <div class="text-xs text-slate-400 mb-1">Вопрос</div>
+                            <div class="text-sm font-medium">Расскажите про CI/CD пайплайны...</div>
+                        </div>
+                        <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                            <div class="text-xs text-indigo-400 mb-1">AI Анализ</div>
+                            <div class="text-sm text-slate-700">Отличное понимание Docker multi-stage. Упомянуты стратегии отката.</div>
+                            <div class="mt-2 flex gap-2">
+                                <span class="px-2 py-1 bg-white text-xs rounded-md shadow-sm text-green-600">+ Hard Skills</span>
+                                <span class="px-2 py-1 bg-white text-xs rounded-md shadow-sm text-blue-600">+ Communication</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Features Grid -->
+    <section id="features" class="py-20 bg-white">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl font-bold mb-4">Почему выбирают нас</h2>
+                <p class="text-slate-500">Технологии, которые меняют правила игры в рекрутменте</p>
+            </div>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="p-8 rounded-2xl bg-slate-50 hover:bg-indigo-50 transition duration-300">
+                    <div class="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 text-2xl mb-6">⚡️</div>
+                    <h3 class="text-xl font-bold mb-3">Мгновенная оценка</h3>
+                    <p class="text-slate-600">ИИ анализирует ответы сразу после интервью, экономя часы работы технических экспертов.</p>
+                </div>
+                <div class="p-8 rounded-2xl bg-slate-50 hover:bg-indigo-50 transition duration-300">
+                    <div class="w-12 h-12 bg-cyan-100 rounded-xl flex items-center justify-center text-cyan-600 text-2xl mb-6">🎯</div>
+                    <h3 class="text-xl font-bold mb-3">Объективность</h3>
+                    <p class="text-slate-600">Единые стандарты оценки для всех кандидатов. Никаких предвзятостей, только факты и навыки.</p>
+                </div>
+                <div class="p-8 rounded-2xl bg-slate-50 hover:bg-indigo-50 transition duration-300">
+                    <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center text-purple-600 text-2xl mb-6">🔒</div>
+                    <h3 class="text-xl font-bold mb-3">Безопасность данных</h3>
+                    <p class="text-slate-600">Все видео и транскрипты хранятся в защищенном облаке с разграничением доступа.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="bg-slate-900 text-slate-400 py-12">
+        <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center">
+            <div class="mb-4 md:mb-0">
+                <span class="text-white font-bold text-lg">AI Interview</span> © 2024
+            </div>
+            <div class="flex space-x-6">
+                <a href="#" class="hover:text-white transition">Privacy</a>
+                <a href="#" class="hover:text-white transition">Terms</a>
+                <a href="#" class="hover:text-white transition">Support</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
