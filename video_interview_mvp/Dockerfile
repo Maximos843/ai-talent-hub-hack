@@ -21,6 +21,5 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8000
 
-# app.py wraps the existing business application with HttpOnly sessions,
-# one-time invitations and browser proctoring telemetry.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# One obvious application entrypoint for local runs and Docker.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
