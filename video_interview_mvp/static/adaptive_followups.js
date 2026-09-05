@@ -2,8 +2,6 @@
   if (!window.__INTERVIEW_TOKEN__ || !location.pathname.startsWith('/interview/')) return;
   if (typeof submitAnswer !== 'function' || typeof showQuestion !== 'function') return;
 
-  const plannedQuestionCount = Array.isArray(questions) ? questions.length : 0;
-
   function showFollowUp(followUp) {
     if (!followUp?.question || !followUp?.session_question_id) {
       showQuestion(index + 1);
@@ -23,6 +21,7 @@
     resetAnswer();
     const current = Math.max(1, Number(followUp.follow_up_index || 1));
     const max = Math.max(current, Number(followUp.max_follow_ups || 2));
+    const plannedQuestionCount = Array.isArray(questions) ? questions.length : 0;
     $('progress').textContent = `Вопрос ${index + 1} из ${plannedQuestionCount} · уточнение ${current}/${max}`;
     $('state').textContent = 'Уточняющий вопрос по предыдущему ответу.';
     ai(followUp.question, `Уточняющий вопрос ${current}/${max}`, true);
