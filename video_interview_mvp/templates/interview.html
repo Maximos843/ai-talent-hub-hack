@@ -3,181 +3,388 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Видеоинтервью - {{ vacancy_title }}</title>
+    <meta name="theme-color" content="#f7f7fb">
+    <title>AI Interview — {{ vacancy_title }}</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
-        .header { background: rgba(255,255,255,0.95); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { color: #333; font-size: 1.25rem; }
-        .candidate-info { color: #666; }
-        
-        .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-        
-        .welcome-card { background: white; border-radius: 10px; padding: 2rem; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
-        .welcome-card h2 { color: #333; margin-bottom: 1rem; }
-        .welcome-card p { color: #666; margin-bottom: 1.5rem; line-height: 1.6; }
-        
-        .btn { padding: 1rem 2rem; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; transition: all 0.3s; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-primary:hover { background: #5a6fd6; }
-        .btn-success { background: #27ae60; color: white; }
-        .btn-secondary { background: #95a5a6; color: white; }
-        
+        :root {
+            --bg: #f6f7fb;
+            --surface: rgba(255, 255, 255, 0.92);
+            --surface-solid: #ffffff;
+            --text: #171827;
+            --muted: #707387;
+            --line: #e8e9f0;
+            --primary: #6d5dfc;
+            --primary-dark: #5848ef;
+            --primary-soft: #eeebff;
+            --success: #16a06a;
+            --success-soft: #e9f8f1;
+            --danger: #e25162;
+            --danger-soft: #fff0f2;
+            --warning: #d68b22;
+            --warning-soft: #fff7e8;
+            --shadow: 0 24px 70px rgba(36, 31, 79, 0.11);
+            --shadow-sm: 0 12px 34px rgba(36, 31, 79, 0.08);
+            --radius-xl: 28px;
+            --radius-lg: 20px;
+            --radius-md: 14px;
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 12% 5%, rgba(109, 93, 252, 0.10), transparent 34%),
+                radial-gradient(circle at 88% 8%, rgba(61, 194, 183, 0.10), transparent 30%),
+                var(--bg);
+            font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        button, textarea { font: inherit; }
+        button { border: 0; }
         .hidden { display: none !important; }
-        
-        /* Интерфейс интервью */
-        .interview-container { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
-        .video-section { background: #000; aspect-ratio: 16/9; position: relative; }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        
-        .question-section { padding: 2rem; }
-        .question-text { font-size: 1.5rem; color: #333; margin-bottom: 1rem; line-height: 1.4; }
-        .question-audio { margin-bottom: 1rem; }
-        
-        .timer { font-size: 2rem; font-weight: bold; color: #e74c3c; text-align: center; padding: 1rem; background: #fef9e7; border-radius: 5px; margin: 1rem 0; }
-        .timer.warning { animation: pulse 1s infinite; }
-        
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        
-        .transcript-section { background: #f8f9fa; padding: 1.5rem; border-radius: 5px; margin-top: 1rem; }
-        .transcript-section h3 { color: #333; margin-bottom: 0.5rem; }
-        .transcript-text { color: #555; line-height: 1.6; white-space: pre-wrap; }
-        .transcript-edit { width: 100%; min-height: 100px; padding: 0.75rem; border: 1px solid #ddd; border-radius: 5px; font-size: 1rem; font-family: inherit; }
-        
-        .progress-bar { height: 4px; background: #eee; }
-        .progress-fill { height: 100%; background: #27ae60; transition: width 0.3s; }
-        
-        .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.875rem; font-weight: 500; }
-        .status-recording { background: #e74c3c; color: white; }
-        .status-waiting { background: #95a5a6; color: white; }
-        .status-review { background: #f39c12; color: white; }
-        
-        /* Статусные сообщения для проверки оборудования */
-        .status-message { padding: 1rem; border-radius: 5px; margin-top: 1rem; text-align: center; }
-        .status-message.warning { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
-        .status-message.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
-        .status-message.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
-        
-        .actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
-        
-        .final-screen { text-align: center; padding: 3rem; }
-        .final-screen h2 { color: #27ae60; margin-bottom: 1rem; }
-        .final-screen p { color: #666; margin-bottom: 1rem; }
-        
-        /* Уведомления */
-        .toast { position: fixed; bottom: 2rem; right: 2rem; background: #333; color: white; padding: 1rem 1.5rem; border-radius: 5px; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
-        .toast.show { transform: translateY(0); opacity: 1; }
-        .toast.error { background: #e74c3c; }
-        .toast.success { background: #27ae60; }
+
+        .topbar {
+            height: 72px;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(226, 227, 236, 0.85);
+            background: rgba(250, 250, 253, 0.82);
+            backdrop-filter: blur(18px);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; letter-spacing: -0.03em; }
+        .brand-mark {
+            width: 34px; height: 34px; border-radius: 11px;
+            display: grid; place-items: center; color: white;
+            background: linear-gradient(145deg, #7567ff, #5546e8);
+            box-shadow: 0 8px 20px rgba(109, 93, 252, .28);
+        }
+        .brand-sub { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0; }
+        .secure-chip {
+            display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+            border: 1px solid var(--line); border-radius: 999px; color: var(--muted);
+            background: rgba(255,255,255,.72); font-size: 13px; font-weight: 650;
+        }
+        .secure-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
+
+        .page { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 46px 0 54px; }
+        .eyebrow {
+            display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+            border-radius: 999px; background: var(--primary-soft); color: #5949e8;
+            font-size: 13px; font-weight: 750;
+        }
+        h1, h2, h3, p { margin-top: 0; }
+        h1 { font-size: clamp(38px, 5vw, 64px); line-height: 1.02; letter-spacing: -0.055em; margin: 20px 0 18px; }
+        h2 { font-size: clamp(28px, 3vw, 38px); line-height: 1.12; letter-spacing: -0.04em; }
+        .lead { color: var(--muted); font-size: 18px; line-height: 1.65; max-width: 660px; }
+
+        .welcome-grid { display: grid; grid-template-columns: 1.08fr .92fr; gap: 28px; align-items: stretch; }
+        .welcome-copy { padding: 34px 12px 22px 2px; }
+        .welcome-card, .device-card, .interview-shell, .final-card {
+            background: var(--surface);
+            border: 1px solid rgba(228, 228, 238, .9);
+            box-shadow: var(--shadow);
+            border-radius: var(--radius-xl);
+        }
+        .welcome-card { padding: 28px; display: flex; flex-direction: column; justify-content: space-between; min-height: 470px; overflow: hidden; position: relative; }
+        .welcome-card::after {
+            content: ""; position: absolute; width: 240px; height: 240px; border-radius: 50%;
+            right: -105px; top: -100px; background: radial-gradient(circle, rgba(109,93,252,.17), transparent 68%);
+        }
+        .assistant-orb {
+            width: 76px; height: 76px; border-radius: 26px; display: grid; place-items: center;
+            color: white; font-size: 30px; font-weight: 800; position: relative;
+            background: linear-gradient(145deg, #7568ff 0%, #6456f2 54%, #42bdb1 130%);
+            box-shadow: 0 18px 44px rgba(109, 93, 252, .26);
+        }
+        .assistant-orb::after { content: ""; position: absolute; inset: -7px; border: 1px solid rgba(109,93,252,.18); border-radius: 31px; }
+        .session-title { margin: 24px 0 7px; font-size: 22px; font-weight: 800; letter-spacing: -0.03em; }
+        .session-role { color: var(--muted); line-height: 1.5; }
+        .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 24px 0; }
+        .fact { border: 1px solid var(--line); background: #fbfbfd; border-radius: 16px; padding: 14px; }
+        .fact-label { color: var(--muted); font-size: 12px; font-weight: 650; margin-bottom: 5px; }
+        .fact-value { font-size: 15px; font-weight: 760; }
+
+        .btn {
+            min-height: 50px; padding: 0 20px; border-radius: 14px; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+            font-weight: 760; transition: transform .18s ease, box-shadow .18s ease, background .18s ease, opacity .18s ease;
+        }
+        .btn:hover:not(:disabled) { transform: translateY(-1px); }
+        .btn:active:not(:disabled) { transform: translateY(0); }
+        .btn:disabled { opacity: .48; cursor: not-allowed; }
+        .btn-primary { color: white; background: var(--primary); box-shadow: 0 10px 26px rgba(109,93,252,.24); }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-dark); box-shadow: 0 14px 30px rgba(109,93,252,.30); }
+        .btn-secondary { color: #4f5060; background: #f1f2f6; }
+        .btn-danger { color: white; background: var(--danger); box-shadow: 0 10px 24px rgba(226,81,98,.22); }
+        .btn-ghost { color: var(--primary); background: var(--primary-soft); }
+        .btn-wide { width: 100%; }
+
+        .mini-list { display: grid; gap: 13px; margin-top: 28px; }
+        .mini-row { display: flex; align-items: flex-start; gap: 12px; color: #4f5060; font-size: 14px; line-height: 1.45; }
+        .mini-icon { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: white; border: 1px solid var(--line); }
+
+        /* Device test */
+        .device-card { overflow: hidden; }
+        .device-head { padding: 28px 30px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+        .device-head p { color: var(--muted); margin-bottom: 0; line-height: 1.55; }
+        .step-label { color: var(--primary); font-size: 13px; font-weight: 800; white-space: nowrap; }
+        .device-grid { display: grid; grid-template-columns: 1.25fr .75fr; min-height: 480px; }
+        .preview-wrap { background: #171821; position: relative; min-height: 420px; overflow: hidden; }
+        .preview-wrap video { width: 100%; height: 100%; min-height: 420px; object-fit: cover; transform: scaleX(-1); }
+        .preview-overlay { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 18px; }
+        .preview-pill { align-self: flex-start; padding: 8px 11px; border-radius: 999px; color: white; background: rgba(18,19,27,.60); backdrop-filter: blur(10px); font-size: 12px; font-weight: 700; }
+        .preview-help { color: rgba(255,255,255,.72); font-size: 13px; align-self: center; padding: 8px 12px; border-radius: 999px; background: rgba(18,19,27,.36); }
+        .device-side { padding: 26px; display: flex; flex-direction: column; }
+        .checks { display: grid; gap: 10px; }
+        .check-row { display: flex; gap: 12px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 15px; background: #fbfbfd; }
+        .check-icon { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: #f0f1f5; color: var(--muted); font-weight: 850; }
+        .check-row.ok .check-icon { background: var(--success-soft); color: var(--success); }
+        .check-copy { min-width: 0; flex: 1; }
+        .check-title { font-size: 14px; font-weight: 760; }
+        .check-status { color: var(--muted); font-size: 12px; margin-top: 2px; }
+        .meter { margin: 16px 0 8px; height: 8px; border-radius: 999px; background: #ececf2; overflow: hidden; }
+        .meter > div { height: 100%; width: 3%; border-radius: inherit; background: linear-gradient(90deg, #5dce9a, #6d5dfc); transition: width .08s linear; }
+        .device-actions { margin-top: auto; display: grid; gap: 10px; padding-top: 20px; }
+        .device-error { margin-top: 14px; padding: 13px 14px; border-radius: 14px; background: var(--danger-soft); color: #a83948; font-size: 13px; line-height: 1.5; }
+
+        /* Interview */
+        .interview-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+        .interview-shell { overflow: hidden; min-height: calc(100vh - 150px); display: flex; flex-direction: column; }
+        .interview-head { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; }
+        .progress-track { height: 7px; flex: 1; background: #ececf2; border-radius: 99px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #6d5dfc, #38bcae); transition: width .35s ease; }
+        .progress-label { font-size: 12px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+        .chat { flex: 1; padding: 28px; overflow-y: auto; min-height: 460px; max-height: calc(100vh - 320px); scroll-behavior: smooth; }
+        .message { display: flex; gap: 12px; margin-bottom: 22px; animation: messageIn .28s ease both; }
+        @keyframes messageIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        .message.user { justify-content: flex-end; }
+        .avatar { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 13px; display: grid; place-items: center; font-weight: 850; }
+        .message.ai .avatar { color: white; background: linear-gradient(145deg, #7668ff, #5b4dec); }
+        .message.user .avatar { order: 2; color: #454651; background: #eeeff4; }
+        .bubble { max-width: min(680px, 82%); border-radius: 20px; padding: 15px 17px; line-height: 1.58; font-size: 15px; }
+        .message.ai .bubble { background: #f0efff; color: #29273a; border-top-left-radius: 7px; }
+        .message.user .bubble { background: #20212c; color: #fff; border-top-right-radius: 7px; white-space: pre-wrap; }
+        .bubble-meta { color: var(--muted); font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+        .question-tools { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
+        .tiny-btn { border: 0; border-radius: 10px; background: rgba(255,255,255,.68); color: #5d51d7; padding: 7px 9px; cursor: pointer; font-size: 12px; font-weight: 740; }
+
+        .composer { border-top: 1px solid var(--line); padding: 18px 22px 20px; background: rgba(251,251,253,.92); }
+        .composer-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+        .state-copy { color: var(--muted); font-size: 13px; }
+        .timer-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 999px; background: #f0f1f5; color: #565766; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .timer-chip.warning { color: #a83948; background: var(--danger-soft); }
+        .record-actions { display: flex; gap: 10px; }
+        .record-actions .btn { flex: 1; }
+        .pulse-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); animation: pulse 1.1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(226,81,98,.32); } 50% { opacity: .75; box-shadow: 0 0 0 7px rgba(226,81,98,0); } }
+        .processing { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+        .spinner { width: 16px; height: 16px; border: 2px solid #dddde6; border-top-color: var(--primary); border-radius: 50%; animation: spin .75s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .transcript-review { border: 1px solid #dbd8ff; background: #faf9ff; padding: 16px; border-radius: 18px; margin-top: 14px; }
+        .transcript-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+        .transcript-title { font-weight: 800; font-size: 14px; }
+        .transcript-note { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 8px 0 12px; }
+        .transcript-edit { width: 100%; min-height: 120px; resize: vertical; border: 1px solid #dddee7; outline: none; border-radius: 14px; background: white; color: var(--text); padding: 13px 14px; line-height: 1.55; transition: border .18s, box-shadow .18s; }
+        .transcript-edit:focus { border-color: #9b91ff; box-shadow: 0 0 0 4px rgba(109,93,252,.08); }
+
+        .side-panel { position: sticky; top: 92px; display: grid; gap: 14px; }
+        .camera-card { overflow: hidden; border-radius: 22px; background: #161720; box-shadow: var(--shadow-sm); position: relative; aspect-ratio: 4 / 3; }
+        .camera-card video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        .camera-top { position: absolute; inset: 12px 12px auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .dark-pill { color: white; background: rgba(16,17,24,.58); backdrop-filter: blur(10px); border-radius: 999px; padding: 7px 9px; font-size: 11px; font-weight: 740; }
+        .side-info { border: 1px solid var(--line); border-radius: 20px; background: rgba(255,255,255,.84); padding: 16px; box-shadow: var(--shadow-sm); }
+        .side-info h3 { font-size: 14px; margin-bottom: 10px; }
+        .side-info p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+        .live-state { display: flex; align-items: center; gap: 8px; }
+
+        .final-card { max-width: 700px; margin: 50px auto; padding: 44px; text-align: center; }
+        .final-icon { width: 80px; height: 80px; display: grid; place-items: center; margin: 0 auto 22px; border-radius: 28px; background: var(--success-soft); color: var(--success); font-size: 36px; }
+        .final-card p { color: var(--muted); line-height: 1.6; }
+
+        .toast {
+            position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 24px);
+            opacity: 0; pointer-events: none; z-index: 100;
+            max-width: calc(100% - 32px); padding: 12px 16px; border-radius: 13px;
+            color: white; background: #22232d; box-shadow: 0 14px 36px rgba(0,0,0,.18);
+            font-size: 13px; font-weight: 680; transition: .22s ease;
+        }
+        .toast.show { opacity: 1; transform: translate(-50%, 0); }
+        .toast.error { background: #a93d4b; }
+
+        @media (max-width: 900px) {
+            .welcome-grid, .device-grid, .interview-layout { grid-template-columns: 1fr; }
+            .welcome-copy { padding: 6px 4px; }
+            .welcome-card { min-height: auto; }
+            .side-panel { position: static; grid-row: 1; }
+            .camera-card { max-height: 240px; }
+            .chat { max-height: none; min-height: 390px; }
+            .interview-shell { min-height: 0; }
+        }
+        @media (max-width: 600px) {
+            .topbar { height: 62px; padding: 0 16px; }
+            .brand-sub, .secure-chip span:last-child { display: none; }
+            .page { width: min(100% - 20px, 1180px); padding-top: 24px; }
+            h1 { font-size: 38px; }
+            .facts { grid-template-columns: 1fr; }
+            .welcome-card, .final-card { padding: 22px; border-radius: 22px; }
+            .device-head { padding: 22px; flex-direction: column; }
+            .device-side { padding: 20px; }
+            .preview-wrap, .preview-wrap video { min-height: 300px; }
+            .chat { padding: 20px 14px; }
+            .bubble { max-width: 88%; }
+            .composer { padding: 15px 14px 17px; }
+            .record-actions { flex-direction: column; }
+        }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🎥 Видеоинтервью</h1>
-        <div class="candidate-info">
-            Кандидат: <strong>{{ candidate_name }}</strong> | Вакансия: <strong>{{ vacancy_title }}</strong>
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark">AI</div>
+            <div>
+                Talent Interview
+                <div class="brand-sub">техническое интервью с ИИ</div>
+            </div>
         </div>
-    </div>
-    
-    <div class="container">
-        <!-- Экран приветствия -->
-        <div id="welcomeScreen" class="welcome-card">
-            <h2>Добро пожаловать на техническое интервью!</h2>
-            <p>
-                Вам будет предложено несколько вопросов. На каждый вопрос у вас есть <strong>2 минуты</strong> на ответ.<br>
-                После ответа вы сможете проверить транскрипцию и при необходимости исправить её.<br><br>
-                <strong>Требования:</strong><br>
-                • Разрешите доступ к камере и микрофону<br>
-                • Найдите тихое место без отвлекающих факторов<br>
-                • Убедитесь в стабильном интернет-соединении
-            </p>
-            <button class="btn btn-primary" onclick="showDeviceTest()">Проверить оборудование и начать интервью</button>
-        </div>
-        
-        <!-- Экран проверки оборудования -->
-        <div id="deviceTestScreen" class="welcome-card hidden">
-            <h2>🎥 Проверка камеры и микрофона</h2>
-            <p style="margin-bottom: 1rem; color: #e74c3c; font-weight: bold;">⚠️ Пожалуйста, разрешите доступ в браузере и протестируйте оборудование!</p>
-            
-            <div style="margin: 1.5rem 0;">
-                <video id="testVideoPreview" autoplay muted playsinline style="width: 100%; max-width: 480px; border-radius: 8px; background: #000;"></video>
+        <div class="secure-chip"><span class="secure-dot"></span><span>Защищённая сессия</span></div>
+    </header>
+
+    <main class="page">
+        <!-- Welcome -->
+        <section id="welcomeScreen" class="welcome-grid">
+            <div class="welcome-copy">
+                <span class="eyebrow">Персональное интервью</span>
+                <h1>Спокойный разговор о вашем опыте</h1>
+                <p class="lead">ИИ-интервьюер задаст несколько технических вопросов. Отвечайте так, как отвечали бы коллеге: можно подумать, привести пример и пояснить свой вклад.</p>
+                <div class="mini-list">
+                    <div class="mini-row"><span class="mini-icon">◷</span><span><strong>Предсказуемо по времени.</strong> На каждый ответ есть фиксированный лимит.</span></div>
+                    <div class="mini-row"><span class="mini-icon">✎</span><span><strong>Вы контролируете транскрипт.</strong> После ответа можно исправить ошибки распознавания.</span></div>
+                    <div class="mini-row"><span class="mini-icon">⌁</span><span><strong>Ничего устанавливать не нужно.</strong> Камера и микрофон работают прямо в браузере.</span></div>
+                </div>
             </div>
-            
-            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-                <p style="margin-bottom: 0.5rem; font-weight: bold;">📋 Инструкция по разрешению доступа:</p>
-                <ol style="text-align: left; color: #555; line-height: 1.6; padding-left: 1.5rem;">
-                    <li>Если вы видите всплывающее окно браузера с запросом доступа — нажмите <strong>"Разрешить"</strong> или <strong>"Allow"</strong></li>
-                    <li>Если окна нет — нажмите на <strong>🔒 Замок</strong> слева в адресной строке браузера</li>
-                    <li>Найдите пункты <strong>"Камера"</strong> и <strong>"Микрофон"</strong> и переключите их на <strong>"Разрешить"</strong></li>
-                    <li>После этого <strong>обновите страницу (F5)</strong> и попробуйте снова</li>
-                </ol>
+
+            <div class="welcome-card">
+                <div>
+                    <div class="assistant-orb">✦</div>
+                    <div class="session-title">{{ candidate_name }}, всё готово</div>
+                    <div class="session-role">Интервью на позицию <strong>{{ vacancy_title }}</strong></div>
+                    <div class="facts">
+                        <div class="fact"><div class="fact-label">Вопросов</div><div id="welcomeQuestionCount" class="fact-value">Загружаем…</div></div>
+                        <div class="fact"><div class="fact-label">Примерно</div><div id="welcomeDuration" class="fact-value">10–15 минут</div></div>
+                    </div>
+                </div>
+                <div>
+                    <button id="prepareBtn" class="btn btn-primary btn-wide" onclick="showDeviceTest()">Проверить камеру и микрофон →</button>
+                    <p style="margin:12px 0 0;text-align:center;color:var(--muted);font-size:12px;line-height:1.45;">Запись начнётся только после проверки оборудования и вашего подтверждения.</p>
+                </div>
             </div>
-            
-            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; align-items: center;">
-                <button id="testAudioBtn" class="btn btn-secondary" onclick="testAudio()">🎤 Нажмите для теста микрофона</button>
-                <div id="audioIndicator" style="align-self: center; font-weight: bold; color: #27ae60; display: none;">🔊 Звук обнаружен! Микрофон работает!</div>
+        </section>
+
+        <!-- Device test -->
+        <section id="deviceTestScreen" class="device-card hidden">
+            <div class="device-head">
+                <div>
+                    <h2 style="margin-bottom:8px;">Проверим оборудование</h2>
+                    <p>Убедитесь, что вас видно и слышно. Если всё в порядке, сразу переходите к интервью.</p>
+                </div>
+                <div class="step-label">Шаг 1 из 2</div>
             </div>
-            
-            <div id="audioTestStatus" style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">Говорите в микрофон после нажатия кнопки выше</div>
-            
-            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
-                <button class="btn btn-secondary" onclick="backToWelcome()">← Назад</button>
-                <button id="confirmDevicesBtn" class="btn btn-success hidden" onclick="startInterviewAfterTest()">✅ Всё работает, начать интервью</button>
+            <div class="device-grid">
+                <div class="preview-wrap">
+                    <video id="testVideoPreview" autoplay muted playsinline></video>
+                    <div class="preview-overlay">
+                        <div id="previewStatus" class="preview-pill">Запрашиваем доступ…</div>
+                        <div class="preview-help">Расположитесь по центру кадра</div>
+                    </div>
+                </div>
+                <div class="device-side">
+                    <div class="checks">
+                        <div id="cameraCheck" class="check-row"><div class="check-icon">◉</div><div class="check-copy"><div class="check-title">Камера</div><div class="check-status">Ожидаем разрешение</div></div></div>
+                        <div id="micCheck" class="check-row"><div class="check-icon">◌</div><div class="check-copy"><div class="check-title">Микрофон</div><div class="check-status">Ожидаем разрешение</div></div></div>
+                        <div id="browserCheck" class="check-row"><div class="check-icon">✓</div><div class="check-copy"><div class="check-title">Браузер</div><div id="browserCheckText" class="check-status">Проверяем соединение</div></div></div>
+                    </div>
+                    <div style="margin-top:16px;font-size:12px;color:var(--muted);font-weight:700;">Уровень микрофона</div>
+                    <div class="meter"><div id="audioMeterFill"></div></div>
+                    <div id="deviceError" class="device-error hidden"></div>
+                    <div class="device-actions">
+                        <button id="confirmDevicesBtn" class="btn btn-primary btn-wide" disabled onclick="startInterviewAfterTest()">Всё работает — начать интервью</button>
+                        <button class="btn btn-secondary btn-wide" onclick="retryDevices()">Проверить ещё раз</button>
+                        <button class="btn btn-ghost btn-wide" onclick="backToWelcome()">← Вернуться</button>
+                    </div>
+                </div>
             </div>
-            
-            <div id="deviceTestStatus" class="status-message warning" style="display: none; margin-top: 1rem;"></div>
-        </div>
-        
-        <!-- Экран интервью -->
-        <div id="interviewScreen" class="hidden">
-            <div class="interview-container">
-                <div class="progress-bar"><div id="progressFill" class="progress-fill" style="width: 0%"></div></div>
-                
-                <div class="video-section">
+        </section>
+
+        <!-- Interview -->
+        <section id="interviewScreen" class="interview-layout hidden">
+            <div class="interview-shell">
+                <div class="interview-head">
+                    <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+                    <div id="progressLabel" class="progress-label">Вопрос 1 из 1</div>
+                </div>
+
+                <div id="chat" class="chat"></div>
+
+                <div class="composer">
+                    <div class="composer-state">
+                        <div id="composerState" class="state-copy">Когда будете готовы, начните ответ.</div>
+                        <div id="timerChip" class="timer-chip"><span>◷</span><span id="timer">2:00</span></div>
+                    </div>
+
+                    <div id="processingState" class="processing hidden"><span class="spinner"></span><span>Сохраняем запись и распознаём речь…</span></div>
+
+                    <div id="transcriptSection" class="transcript-review hidden">
+                        <div class="transcript-head">
+                            <div class="transcript-title">Проверьте транскрипцию</div>
+                            <span style="font-size:11px;color:var(--success);font-weight:800;">Запись сохранена</span>
+                        </div>
+                        <textarea id="transcriptEdit" class="transcript-edit" placeholder="Текст вашего ответа появится здесь"></textarea>
+                        <div class="transcript-note">Исправляйте только ошибки распознавания речи — исходная запись сохраняется отдельно.</div>
+                        <button id="submitBtn" class="btn btn-primary btn-wide" onclick="submitAnswer()">Подтвердить ответ и продолжить →</button>
+                    </div>
+
+                    <div id="recordActions" class="record-actions">
+                        <button id="recordBtn" class="btn btn-primary" onclick="toggleRecording()">● Начать ответ</button>
+                        <button class="btn btn-secondary" onclick="playQuestionAudio()">↗ Озвучить вопрос</button>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="side-panel">
+                <div class="camera-card">
                     <video id="videoPreview" autoplay muted playsinline></video>
-                    <div id="recordingIndicator" class="hidden" style="position: absolute; top: 1rem; right: 1rem;">
-                        <span class="status-badge status-recording">● Запись</span>
+                    <div class="camera-top">
+                        <div class="dark-pill">Вы в кадре</div>
+                        <div id="recordingIndicator" class="dark-pill live-state hidden"><span class="pulse-dot"></span> запись ответа</div>
                     </div>
                 </div>
-                
-                <div class="question-section">
-                    <div id="questionText" class="question-text"></div>
-                    
-                    <audio id="questionAudio" class="hidden"></audio>
-                    <button class="btn btn-secondary" onclick="playQuestionAudio()" style="margin-bottom: 1rem;">
-                        🔊 Прослушать вопрос
-                    </button>
-                    
-                    <div id="timer" class="timer">2:00</div>
-                    
-                    <div id="transcriptSection" class="transcript-section hidden">
-                        <h3>Ваш ответ (транскрипция):</h3>
-                        <textarea id="transcriptEdit" class="transcript-edit"></textarea>
-                        <p style="color: #666; font-size: 0.875rem; margin-top: 0.5rem;">
-                            Проверьте текст и исправьте ошибки если нужно
-                        </p>
-                    </div>
-                    
-                    <div class="actions">
-                        <button id="recordBtn" class="btn btn-primary" onclick="toggleRecording()">🎤 Начать ответ</button>
-                        <button id="submitBtn" class="btn btn-success hidden" onclick="submitAnswer()">✅ Подтвердить ответ</button>
-                    </div>
+                <div class="side-info">
+                    <h3>{{ vacancy_title }}</h3>
+                    <p>Отвечайте конкретно: рассказывайте про реальный контекст, свой вклад и результат. Если нужен уточняющий вопрос, интервьюер задаст его следующим сообщением.</p>
                 </div>
-            </div>
-            
-            <p style="text-align: center; color: #999; margin-top: 1rem;">
-                Вопрос <span id="currentQuestionNum">1</span> из <span id="totalQuestions">0</span>
-            </p>
-        </div>
-        
-        <!-- Финальный экран -->
-        <div id="finalScreen" class="welcome-card hidden final-screen">
-            <h2>✅ Интервью завершено!</h2>
-            <p>Спасибо за ваши ответы. Результаты будут отправлены рекрутеру.</p>
-            <p style="color: #999; font-size: 0.9rem;">Вы можете закрыть эту страницу.</p>
-        </div>
-    </div>
-    
+            </aside>
+        </section>
+
+        <!-- Final -->
+        <section id="finalScreen" class="final-card hidden">
+            <div class="final-icon">✓</div>
+            <h2 style="margin-bottom:10px;">Интервью завершено</h2>
+            <p>Спасибо, {{ candidate_name }}. Ответы и запись интервью сохранены. Теперь система подготовит техническую оценку для рекрутера.</p>
+            <div style="margin-top:22px;padding:13px 16px;border-radius:14px;background:#f6f7fa;color:var(--muted);font-size:13px;">Эту вкладку можно закрыть.</div>
+        </section>
+    </main>
+
     <div id="toast" class="toast"></div>
 
     <script>
@@ -185,381 +392,585 @@
         let sessionId = null;
         let questions = [];
         let currentQuestionIndex = 0;
-        let mediaRecorder = null;
-        let recordedChunks = [];
+        let answerTimeLimit = 120;
+        let timeLeft = 120;
         let timerInterval = null;
-        let timeLeft = 120; // 2 минуты
-        let isRecording = false;
+
+        let testStream = null;
         let stream = null;
-        
-        // Инициализация
+        let micAudioContext = null;
+        let micAnimationFrame = null;
+
+        let answerRecorder = null;
+        let answerChunks = [];
+        let answerMimeType = "";
+        let isRecording = false;
+        let currentAnswerId = null;
+
+        let fullRecorder = null;
+        let fullInterviewChunks = [];
+        let fullMimeType = "";
+        let interviewStarted = false;
+
+        function $(id) { return document.getElementById(id); }
+
         async function init() {
             try {
                 const response = await fetch(`/api/interviews/${sessionToken}`);
-                if (!response.ok) {
-                    showToast('Ошибка загрузки интервью', true);
-                    return;
-                }
+                if (!response.ok) throw new Error(await getErrorMessage(response));
                 const data = await response.json();
                 sessionId = data.session_id;
-                questions = data.questions;
-                document.getElementById('totalQuestions').textContent = questions.length;
-            } catch (err) {
-                showToast('Ошибка подключения', true);
-            }
-        }
-        
-        function showToast(message, isError = false) {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast show' + (isError ? ' error' : ' success');
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-        
-        let testStream = null;
-        
-        // Показать экран проверки оборудования
-        async function showDeviceTest() {
-            const statusEl = document.getElementById('deviceTestStatus');
-            statusEl.style.display = 'block';
-            statusEl.textContent = '🔄 Запрос доступа к камере и микрофону...';
-            statusEl.className = 'status-message warning';
-            
-            try {
-                // Запрашиваем доступ к камере и микрофону
-                testStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, 
-                    audio: true 
-                });
-                
-                // Показываем превью камеры
-                const testVideo = document.getElementById('testVideoPreview');
-                testVideo.srcObject = testStream;
-                
-                // Переключаем экраны
-                document.getElementById('welcomeScreen').classList.add('hidden');
-                document.getElementById('deviceTestScreen').classList.remove('hidden');
-                
-                // Включаем кнопку подтверждения после успешного получения доступа
-                setTimeout(() => {
-                    document.getElementById('confirmDevicesBtn').classList.remove('hidden');
-                    statusEl.textContent = '✅ Доступ получен! Проверьте изображение выше и протестируйте микрофон.';
-                    statusEl.className = 'status-message success';
-                }, 500);
-                
-            } catch (err) {
-                console.error('Ошибка доступа к устройствам:', err);
-                
-                let errorMessage = '⚠️ Не удалось получить доступ к камере или микрофону.';
-                let helpHTML = '';
-                
-                if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    errorMessage = '❌ Доступ к камере/микрофону запрещен.';
-                    helpHTML = `
-                        <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; text-align: left;">
-                            <strong>📋 Как разрешить доступ:</strong><br><br>
-                            <strong>Шаг 1:</strong> Посмотрите на адресную строку браузера (где написан URL сайта).<br>
-                            <strong>Шаг 2:</strong> Слева от адреса нажмите на значок <strong>🔒 Замка</strong> или <strong>⚙ Настроек</strong>.<br>
-                            <strong>Шаг 3:</strong> В открывшемся меню найдите пункты:<br>
-                            &nbsp;&nbsp;• <strong>Камера</strong> → переключите на <strong>"Разрешить"</strong><br>
-                            &nbsp;&nbsp;• <strong>Микрофон</strong> → переключите на <strong>"Разрешить"</strong><br>
-                            <strong>Шаг 4:</strong> <strong>Обновите страницу</strong> (нажмите F5 или кнопку обновления) и попробуйте снова.
-                        </div>
-                    `;
-                } else if (err.name === 'NotFoundError') {
-                    errorMessage = '❌ Камера или микрофон не найдены на устройстве.';
-                    helpHTML = '<div style="margin-top: 10px;">Убедитесь, что камера и микрофон подключены к компьютеру и не используются другими программами.</div>';
-                } else if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                    errorMessage = '⚠️ Браузер блокирует доступ из-за незащищенного соединения.';
-                    helpHTML = `
-                        <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; text-align: left;">
-                            <strong>🔒 Проблема безопасности:</strong><br><br>
-                            Вы открыли интервью через HTTP (незащищенное соединение). Современные браузеры блокируют камеру на таких сайтах.<br><br>
-                            <strong>Решение:</strong><br>
-                            1. Нажмите на значок <strong>🔒 Замка</strong> слева в адресной строке.<br>
-                            2. Выберите <strong>"Настройки сайта"</strong> или <strong>"Разрешения"</strong>.<br>
-                            3. Вручную включите <strong>Камеру</strong> и <strong>Микрофон</strong>.<br>
-                            4. <strong>Обновите страницу (F5)</strong>.<br><br>
-                            <em>Идеальное решение: используйте HTTPS или localhost для тестирования.</em>
-                        </div>
-                    `;
-                } else {
-                    helpHTML = '<div style="margin-top: 10px;">Попробуйте использовать браузер Google Chrome или обновить страницу.</div>';
+                questions = data.questions || [];
+                answerTimeLimit = Number(data.time_limit || 120);
+                timeLeft = answerTimeLimit;
+
+                $("welcomeQuestionCount").textContent = questions.length || "—";
+                const minutes = Math.max(8, Math.round((questions.length || 4) * 2.5));
+                $("welcomeDuration").textContent = `≈ ${minutes} минут`;
+
+                if (!questions.length) {
+                    $("prepareBtn").disabled = true;
+                    showToast("Для интервью пока не назначены вопросы", true);
                 }
-                
-                statusEl.innerHTML = `<strong>${errorMessage}</strong>${helpHTML}`;
-                statusEl.className = 'status-message error';
-                
-                showToast('Требуется доступ к камере и микрофону!', true);
+            } catch (err) {
+                console.error(err);
+                $("prepareBtn").disabled = true;
+                showToast(`Не удалось загрузить интервью: ${err.message}`, true);
             }
         }
-        
-        // Тест микрофона
-        function testAudio() {
-            if (!testStream) {
-                document.getElementById('audioTestStatus').textContent = '❌ Сначала разрешите доступ к микрофону!';
-                document.getElementById('audioTestStatus').style.color = '#e74c3c';
+
+        async function getErrorMessage(response) {
+            try {
+                const data = await response.json();
+                return data.detail || data.message || `HTTP ${response.status}`;
+            } catch (_) {
+                return `HTTP ${response.status}`;
+            }
+        }
+
+        function showToast(message, isError = false) {
+            const toast = $("toast");
+            toast.textContent = message;
+            toast.className = `toast show${isError ? " error" : ""}`;
+            clearTimeout(showToast.timer);
+            showToast.timer = setTimeout(() => toast.classList.remove("show"), 3200);
+        }
+
+        function showOnly(screenId) {
+            ["welcomeScreen", "deviceTestScreen", "interviewScreen", "finalScreen"].forEach(id => $(id).classList.toggle("hidden", id !== screenId));
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        async function showDeviceTest() {
+            showOnly("deviceTestScreen");
+            await requestDevices();
+        }
+
+        function setCheck(id, ok, statusText) {
+            const row = $(id);
+            row.classList.toggle("ok", !!ok);
+            row.querySelector(".check-status").textContent = statusText;
+        }
+
+        async function requestDevices() {
+            $("deviceError").classList.add("hidden");
+            $("confirmDevicesBtn").disabled = true;
+            $("previewStatus").textContent = "Запрашиваем доступ…";
+            setCheck("cameraCheck", false, "Ожидаем разрешение");
+            setCheck("micCheck", false, "Ожидаем разрешение");
+
+            const secure = window.isSecureContext || ["localhost", "127.0.0.1"].includes(location.hostname);
+            setCheck("browserCheck", secure, secure ? "Соединение подходит для камеры" : "Нужен HTTPS или localhost");
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showDeviceError("Браузер не предоставляет доступ к камере и микрофону. Откройте страницу по HTTPS или используйте актуальный Chrome / Safari / Яндекс Браузер.");
                 return;
             }
-            
-            const audioContext = new AudioContext();
-            const analyser = audioContext.createAnalyser();
-            const microphone = audioContext.createMediaStreamSource(testStream);
-            const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
-            
-            analyser.smoothingTimeConstant = 0.8;
-            analyser.fftSize = 1024;
-            
-            microphone.connect(analyser);
-            analyser.connect(scriptProcessor);
-            scriptProcessor.connect(audioContext.destination);
-            
-            const audioIndicator = document.getElementById('audioIndicator');
-            const audioTestStatus = document.getElementById('audioTestStatus');
-            
-            audioTestStatus.textContent = '🎤 Говорите сейчас...';
-            audioTestStatus.style.color = '#667eea';
-            
-            let soundDetected = false;
-            
-            scriptProcessor.onaudioprocess = function() {
-                const array = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(array);
-                const values = array.reduce((a, b) => a + b, 0);
-                const average = values / array.length;
-                
-                if (average > 10 && !soundDetected) {
-                    soundDetected = true;
-                    audioIndicator.style.display = 'block';
-                    audioTestStatus.textContent = '✅ Микрофон работает! Теперь нажмите кнопку ниже.';
-                    audioTestStatus.style.color = '#27ae60';
-                    // Автоматически показываем кнопку подтверждения
-                    document.getElementById('confirmDevicesBtn').classList.remove('hidden');
-                }
-            };
-            
-            showToast('Говорите в микрофон для проверки', false);
-        }
-        
-        // Вернуться на экран приветствия
-        function backToWelcome() {
-            if (testStream) {
-                testStream.getTracks().forEach(track => track.stop());
-                testStream = null;
-            }
-            document.getElementById('deviceTestScreen').classList.add('hidden');
-            document.getElementById('welcomeScreen').classList.remove('hidden');
-            document.getElementById('deviceTestStatus').style.display = 'none';
-        }
-        
-        // Начать интервью после проверки
-        async function startInterviewAfterTest() {
-            // Останавливаем тестовый поток
-            if (testStream) {
-                testStream.getTracks().forEach(track => track.stop());
-            }
-            
-            // Используем тот же поток для интервью
-            stream = testStream;
-            
+
+            stopStream(testStream);
+            testStream = null;
+            stopMicMeter();
+
             try {
-                // Настраиваем превью для интервью
-                document.getElementById('videoPreview').srcObject = stream;
-                
-                // Начинаем интервью через API
-                await fetch(`/api/interviews/${sessionToken}/start`, { method: 'POST' });
-                
-                document.getElementById('deviceTestScreen').classList.add('hidden');
-                document.getElementById('interviewScreen').classList.remove('hidden');
-                
+                testStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 960 },
+                        height: { ideal: 540 }
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                const video = $("testVideoPreview");
+                video.srcObject = testStream;
+                await video.play().catch(() => {});
+
+                const videoLive = testStream.getVideoTracks().some(track => track.readyState === "live");
+                const audioLive = testStream.getAudioTracks().some(track => track.readyState === "live");
+                setCheck("cameraCheck", videoLive, videoLive ? "Камера подключена" : "Камера недоступна");
+                setCheck("micCheck", audioLive, audioLive ? "Микрофон подключён — скажите пару слов" : "Микрофон недоступен");
+                $("previewStatus").textContent = videoLive ? "Камера подключена" : "Нет видеосигнала";
+
+                if (audioLive) startMicMeter(testStream);
+                $("confirmDevicesBtn").disabled = !(videoLive && audioLive && secure);
+            } catch (err) {
+                console.error("getUserMedia error", err);
+                const message = mediaErrorMessage(err);
+                showDeviceError(message);
+                $("previewStatus").textContent = "Нет доступа к камере";
+            }
+        }
+
+        function mediaErrorMessage(err) {
+            if (err && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
+                return "Доступ запрещён. Разрешите камеру и микрофон в настройках сайта рядом с адресной строкой, затем нажмите «Проверить ещё раз».";
+            }
+            if (err && err.name === "NotFoundError") return "Камера или микрофон не найдены. Проверьте подключение устройства и попробуйте ещё раз.";
+            if (err && (err.name === "NotReadableError" || err.name === "TrackStartError")) return "Камера или микрофон уже заняты другим приложением. Закройте приложение, которое использует устройство, и повторите проверку.";
+            if (!window.isSecureContext) return "Для работы камеры нужен HTTPS или localhost. Откройте защищённую версию страницы.";
+            return "Не удалось запустить камеру и микрофон. Обновите страницу или выберите другое устройство в настройках браузера.";
+        }
+
+        function showDeviceError(message) {
+            $("deviceError").textContent = message;
+            $("deviceError").classList.remove("hidden");
+            $("confirmDevicesBtn").disabled = true;
+        }
+
+        function startMicMeter(sourceStream) {
+            stopMicMeter();
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                micAudioContext = new AudioCtx();
+                const source = micAudioContext.createMediaStreamSource(sourceStream);
+                const analyser = micAudioContext.createAnalyser();
+                analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = .75;
+                source.connect(analyser);
+                const data = new Uint8Array(analyser.frequencyBinCount);
+
+                const draw = () => {
+                    analyser.getByteFrequencyData(data);
+                    const avg = data.reduce((sum, value) => sum + value, 0) / data.length;
+                    const width = Math.min(100, Math.max(3, avg * 1.65));
+                    $("audioMeterFill").style.width = `${width}%`;
+                    if (avg > 7) setCheck("micCheck", true, "Микрофон работает — звук слышен");
+                    micAnimationFrame = requestAnimationFrame(draw);
+                };
+                draw();
+            } catch (err) {
+                console.warn("Mic meter unavailable", err);
+            }
+        }
+
+        function stopMicMeter() {
+            if (micAnimationFrame) cancelAnimationFrame(micAnimationFrame);
+            micAnimationFrame = null;
+            if (micAudioContext) micAudioContext.close().catch(() => {});
+            micAudioContext = null;
+            $("audioMeterFill").style.width = "3%";
+        }
+
+        async function retryDevices() {
+            await requestDevices();
+        }
+
+        function backToWelcome() {
+            stopMicMeter();
+            stopStream(testStream);
+            testStream = null;
+            $("testVideoPreview").srcObject = null;
+            showOnly("welcomeScreen");
+        }
+
+        async function startInterviewAfterTest() {
+            const hasLiveVideo = testStream && testStream.getVideoTracks().some(t => t.readyState === "live");
+            const hasLiveAudio = testStream && testStream.getAudioTracks().some(t => t.readyState === "live");
+            if (!hasLiveVideo || !hasLiveAudio) {
+                await requestDevices();
+                return;
+            }
+
+            $("confirmDevicesBtn").disabled = true;
+            $("confirmDevicesBtn").textContent = "Запускаем интервью…";
+
+            try {
+                // Важно: не останавливаем testStream. Раньше треки закрывались перед
+                // передачей в videoPreview — из-за этого видео было чёрным и MediaRecorder падал.
+                stopMicMeter();
+                stream = testStream;
+                testStream = null;
+
+                const preview = $("videoPreview");
+                preview.srcObject = stream;
+                await preview.play().catch(() => {});
+
+                const response = await fetch(`/api/interviews/${sessionToken}/start`, { method: "POST" });
+                if (!response.ok) throw new Error(await getErrorMessage(response));
+
+                interviewStarted = true;
+                startFullInterviewRecording();
+                showOnly("interviewScreen");
+                addAiMessage("Привет! Я проведу техническую часть интервью. Здесь нет задачи отвечать идеально — мне важно понять ход ваших мыслей и реальный опыт.", "Интервьюер");
                 showQuestion(0);
             } catch (err) {
-                showToast('Ошибка начала интервью', true);
+                console.error(err);
+                showToast(`Не удалось начать интервью: ${err.message}`, true);
+                $("confirmDevicesBtn").disabled = false;
+                $("confirmDevicesBtn").textContent = "Всё работает — начать интервью";
             }
         }
-        
-        // Старая функция startInterview оставлена для совместимости
-        async function startInterview() {
-            await showDeviceTest();
-        }
-        
+
         function showQuestion(index) {
             if (index >= questions.length) {
                 completeInterview();
                 return;
             }
-            
+
             currentQuestionIndex = index;
+            currentAnswerId = null;
+            resetAnswerUi();
             const q = questions[index];
-            document.getElementById('questionText').textContent = q.question;
-            document.getElementById('currentQuestionNum').textContent = index + 1;
-            document.getElementById('progressFill').style.width = `${((index) / questions.length) * 100}%`;
-            
-            // Сброс состояния
-            resetRecordingState();
-            
-            // Генерируем TTS для вопроса (в реальном приложении)
-            generateQuestionAudio(q.question);
+            const number = index + 1;
+            $("progressFill").style.width = `${(number / questions.length) * 100}%`;
+            $("progressLabel").textContent = `Вопрос ${number} из ${questions.length}`;
+            addAiMessage(q.question, `Вопрос ${number} из ${questions.length}`, true);
         }
-        
-        async function generateQuestionAudio(text) {
-            // Для MVP используем заглушку - в реальности вызываем TTS сервис
-            // const response = await fetch('/api/tts/generate', { ... });
-            console.log('TTS для вопроса:', text);
+
+        function addAiMessage(text, label = "Интервьюер", withAudio = false) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "message ai";
+            wrapper.innerHTML = `
+                <div class="avatar">✦</div>
+                <div class="bubble">
+                    <div class="bubble-meta">${escapeHtml(label)}</div>
+                    <div>${escapeHtml(text)}</div>
+                    ${withAudio ? '<div class="question-tools"><button class="tiny-btn" onclick="playQuestionAudio()">↗ Озвучить вопрос</button></div>' : ''}
+                </div>`;
+            $("chat").appendChild(wrapper);
+            scrollChat();
         }
-        
+
+        function addUserMessage(text) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "message user";
+            wrapper.innerHTML = `<div class="bubble">${escapeHtml(text)}</div><div class="avatar">Вы</div>`;
+            $("chat").appendChild(wrapper);
+            scrollChat();
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;")
+                .replaceAll("\n", "<br>");
+        }
+
+        function scrollChat() {
+            requestAnimationFrame(() => { $("chat").scrollTop = $("chat").scrollHeight; });
+        }
+
         function playQuestionAudio() {
-            showToast('Воспроизведение аудио вопроса (MVP)');
+            if (!questions[currentQuestionIndex]) return;
+            if (!("speechSynthesis" in window)) {
+                showToast("Озвучивание не поддерживается этим браузером", true);
+                return;
+            }
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(questions[currentQuestionIndex].question);
+            utterance.lang = "ru-RU";
+            utterance.rate = .96;
+            window.speechSynthesis.speak(utterance);
         }
-        
-        function resetRecordingState() {
-            timeLeft = 120;
+
+        function resetAnswerUi() {
+            clearInterval(timerInterval);
+            timeLeft = answerTimeLimit;
             updateTimer();
-            clearInterval(timerInterval);
-            
-            document.getElementById('recordBtn').textContent = '🎤 Начать ответ';
-            document.getElementById('recordBtn').className = 'btn btn-primary';
-            document.getElementById('submitBtn').classList.add('hidden');
-            document.getElementById('transcriptSection').classList.add('hidden');
-            document.getElementById('recordingIndicator').classList.add('hidden');
-            
             isRecording = false;
-            recordedChunks = [];
+            answerChunks = [];
+            answerRecorder = null;
+            $("recordBtn").className = "btn btn-primary";
+            $("recordBtn").textContent = "● Начать ответ";
+            $("recordBtn").disabled = false;
+            $("recordActions").classList.remove("hidden");
+            $("processingState").classList.add("hidden");
+            $("transcriptSection").classList.add("hidden");
+            $("recordingIndicator").classList.add("hidden");
+            $("composerState").textContent = "Когда будете готовы, начните ответ.";
+            $("transcriptEdit").value = "";
         }
-        
+
         function updateTimer() {
-            const minutes = Math.floor(timeLeft / 60);
-            const seconds = timeLeft % 60;
-            document.getElementById('timer').textContent = 
-                `${minutes}:${seconds.toString().padStart(2, '0')}`;
-            
-            if (timeLeft <= 30) {
-                document.getElementById('timer').classList.add('warning');
-            } else {
-                document.getElementById('timer').classList.remove('warning');
-            }
+            const minutes = Math.floor(Math.max(0, timeLeft) / 60);
+            const seconds = Math.max(0, timeLeft) % 60;
+            $("timer").textContent = `${minutes}:${seconds.toString().padStart(2, "0")}`;
+            $("timerChip").classList.toggle("warning", timeLeft <= 30);
         }
-        
+
         function startTimer() {
-            timerInterval = setInterval(() => {
-                timeLeft--;
-                updateTimer();
-                
-                if (timeLeft <= 0) {
-                    stopRecording();
-                }
-            }, 1000);
-        }
-        
-        async function toggleRecording() {
-            if (!isRecording) {
-                await startRecording();
-            } else {
-                stopRecording();
-            }
-        }
-        
-        async function startRecording() {
-            recordedChunks = [];
-            mediaRecorder = new MediaRecorder(stream);
-            
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) {
-                    recordedChunks.push(e.data);
-                }
-            };
-            
-            mediaRecorder.start();
-            isRecording = true;
-            
-            document.getElementById('recordBtn').textContent = '⏹️ Завершить ответ';
-            document.getElementById('recordBtn').className = 'btn btn-secondary';
-            document.getElementById('recordingIndicator').classList.remove('hidden');
-            
-            startTimer();
-        }
-        
-        function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-            
             clearInterval(timerInterval);
-            isRecording = false;
-            
-            document.getElementById('recordingIndicator').classList.add('hidden');
-            document.getElementById('recordBtn').classList.add('hidden');
-            
-            // Создаем файл из chunks
-            const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            
-            // Для MVP сразу показываем заглушку транскрипта
-            // В реальности отправляем на сервер для ASR
-            processRecording(blob);
-        }
-        
-        async function processRecording(blob) {
-            // Отправляем на сервер для обработки
-            const formData = new FormData();
-            formData.append('file', blob, 'answer.webm');
-            formData.append('session_id', sessionId);
-            formData.append('question_id', questions[currentQuestionIndex].session_question_id);
-            formData.append('transcript', 'Это пример транскрипта. В реальной версии здесь будет распознанный текст ответа.'); // Заглушка
-            
-            try {
-                const response = await fetch('/api/interviews/submit-answer', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    // Показываем транскрипт для подтверждения
-                    document.getElementById('transcriptEdit').value = 'Это пример транскрипта вашего ответа. Пожалуйста, проверьте текст и исправьте ошибки если необходимо. В реальной версии здесь будет автоматически распознанный текст.';
-                    document.getElementById('transcriptSection').classList.remove('hidden');
-                    document.getElementById('submitBtn').classList.remove('hidden');
-                    
-                    showToast('Ответ записан! Проверьте транскрипцию');
-                } else {
-                    showToast('Ошибка сохранения ответа', true);
-                }
-            } catch (err) {
-                showToast('Ошибка подключения', true);
-            }
-        }
-        
-        async function submitAnswer() {
-            const correctedTranscript = document.getElementById('transcriptEdit').value;
-            
-            // Обновляем ответ с исправленным транскриптом
-            // (в полной версии нужен отдельный endpoint)
-            
-            showToast('Ответ подтвержден!', true);
-            
-            // Переходим к следующему вопросу
-            setTimeout(() => {
-                showQuestion(currentQuestionIndex + 1);
+            timerInterval = setInterval(() => {
+                timeLeft -= 1;
+                updateTimer();
+                if (timeLeft <= 0) stopRecording();
             }, 1000);
         }
-        
-        async function completeInterview() {
+
+        async function toggleRecording() {
+            if (isRecording) stopRecording();
+            else await startRecording();
+        }
+
+        function isStreamLive(candidateStream) {
+            return candidateStream && candidateStream.getAudioTracks().some(t => t.readyState === "live");
+        }
+
+        async function ensureLiveStream() {
+            if (isStreamLive(stream)) return true;
             try {
-                await fetch(`/api/interviews/${sessionId}/complete`, { method: 'POST' });
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                $("videoPreview").srcObject = stream;
+                await $("videoPreview").play().catch(() => {});
+                return true;
             } catch (err) {
-                console.error('Ошибка завершения интервью:', err);
-            }
-            
-            document.getElementById('interviewScreen').classList.add('hidden');
-            document.getElementById('finalScreen').classList.remove('hidden');
-            
-            // Останавливаем поток
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+                showToast(mediaErrorMessage(err), true);
+                return false;
             }
         }
-        
-        // Запуск
+
+        function preferredMimeType(types) {
+            if (typeof MediaRecorder === "undefined") return "";
+            return types.find(type => MediaRecorder.isTypeSupported(type)) || "";
+        }
+
+        function buildRecorder(mediaStream, mimeType, bits = {}) {
+            const options = { ...bits };
+            if (mimeType) options.mimeType = mimeType;
+            try { return new MediaRecorder(mediaStream, options); }
+            catch (_) { return new MediaRecorder(mediaStream); }
+        }
+
+        async function startRecording() {
+            if (!("MediaRecorder" in window)) {
+                showToast("Запись не поддерживается этим браузером. Используйте актуальный Chrome / Safari.", true);
+                return;
+            }
+            if (!(await ensureLiveStream())) return;
+
+            try {
+                answerChunks = [];
+                const audioOnlyStream = new MediaStream(stream.getAudioTracks());
+                answerMimeType = preferredMimeType(["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]);
+                answerRecorder = buildRecorder(audioOnlyStream, answerMimeType, { audioBitsPerSecond: 64000 });
+
+                answerRecorder.ondataavailable = event => {
+                    if (event.data && event.data.size > 0) answerChunks.push(event.data);
+                };
+                answerRecorder.onerror = event => {
+                    console.error("MediaRecorder error", event.error || event);
+                    showToast("Не удалось записать ответ. Попробуйте ещё раз.", true);
+                };
+                answerRecorder.onstop = async () => {
+                    const type = answerMimeType || answerRecorder.mimeType || "audio/webm";
+                    const blob = new Blob(answerChunks, { type });
+                    if (!blob.size) {
+                        showToast("Запись получилась пустой. Попробуйте ответить ещё раз.", true);
+                        resetAnswerUi();
+                        return;
+                    }
+                    await processRecording(blob, type);
+                };
+
+                answerRecorder.start(1000);
+                isRecording = true;
+                timeLeft = answerTimeLimit;
+                updateTimer();
+                startTimer();
+
+                $("recordBtn").className = "btn btn-danger";
+                $("recordBtn").textContent = "■ Завершить ответ";
+                $("recordingIndicator").classList.remove("hidden");
+                $("composerState").innerHTML = '<span style="display:inline-flex;align-items:center;gap:8px"><span class="pulse-dot"></span>Говорите — ответ записывается</span>';
+            } catch (err) {
+                console.error(err);
+                showToast("Не удалось запустить запись. Проверьте микрофон и попробуйте снова.", true);
+            }
+        }
+
+        function stopRecording() {
+            if (!isRecording) return;
+            isRecording = false;
+            clearInterval(timerInterval);
+            $("recordBtn").disabled = true;
+            $("recordBtn").textContent = "Сохраняем ответ…";
+            $("recordingIndicator").classList.add("hidden");
+            $("composerState").textContent = "Ответ записан. Готовим транскрипцию…";
+            if (answerRecorder && answerRecorder.state !== "inactive") {
+                // Обработку запускаем только в onstop. Это гарантирует, что последний
+                // dataavailable уже пришёл и blob не будет пустым.
+                answerRecorder.stop();
+            }
+        }
+
+        function extensionForMime(type, video = false) {
+            if ((type || "").includes("mp4")) return "mp4";
+            return video ? "webm" : "webm";
+        }
+
+        async function processRecording(blob, mimeType) {
+            $("recordActions").classList.add("hidden");
+            $("processingState").classList.remove("hidden");
+            $("transcriptSection").classList.add("hidden");
+
+            const formData = new FormData();
+            formData.append("file", blob, `answer.${extensionForMime(mimeType)}`);
+            formData.append("session_id", String(sessionId));
+            formData.append("question_id", String(questions[currentQuestionIndex].session_question_id));
+            formData.append("transcript", "");
+
+            try {
+                const response = await fetch("/api/interviews/submit-answer", { method: "POST", body: formData });
+                if (!response.ok) throw new Error(await getErrorMessage(response));
+                const data = await response.json();
+                currentAnswerId = data.answer_id;
+                $("transcriptEdit").value = data.transcript || "";
+                $("processingState").classList.add("hidden");
+                $("transcriptSection").classList.remove("hidden");
+                $("composerState").textContent = "Проверьте распознанный текст перед отправкой.";
+                scrollChat();
+            } catch (err) {
+                console.error(err);
+                $("processingState").classList.add("hidden");
+                $("recordActions").classList.remove("hidden");
+                $("recordBtn").disabled = false;
+                $("recordBtn").textContent = "Повторить запись";
+                showToast(`Ошибка обработки ответа: ${err.message}`, true);
+            }
+        }
+
+        async function submitAnswer() {
+            const correctedTranscript = $("transcriptEdit").value.trim();
+            if (!correctedTranscript) {
+                showToast("Транскрипция пустая. Добавьте текст ответа или повторите запись.", true);
+                return;
+            }
+            if (!currentAnswerId) {
+                showToast("Ответ ещё не сохранён. Повторите запись.", true);
+                return;
+            }
+
+            $("submitBtn").disabled = true;
+            $("submitBtn").textContent = "Сохраняем…";
+            try {
+                const response = await fetch("/api/interviews/correct-transcript", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ answer_id: currentAnswerId, corrected_transcript: correctedTranscript })
+                });
+                if (!response.ok) throw new Error(await getErrorMessage(response));
+
+                addUserMessage(correctedTranscript);
+                showToast("Ответ сохранён");
+                $("submitBtn").disabled = false;
+                $("submitBtn").textContent = "Подтвердить ответ и продолжить →";
+                showQuestion(currentQuestionIndex + 1);
+            } catch (err) {
+                console.error(err);
+                $("submitBtn").disabled = false;
+                $("submitBtn").textContent = "Подтвердить ответ и продолжить →";
+                showToast(`Не удалось подтвердить ответ: ${err.message}`, true);
+            }
+        }
+
+        function startFullInterviewRecording() {
+            if (!("MediaRecorder" in window) || !stream) return;
+            try {
+                fullInterviewChunks = [];
+                fullMimeType = preferredMimeType(["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]);
+                fullRecorder = buildRecorder(stream, fullMimeType, { videoBitsPerSecond: 850000, audioBitsPerSecond: 64000 });
+                fullRecorder.ondataavailable = event => {
+                    if (event.data && event.data.size > 0) fullInterviewChunks.push(event.data);
+                };
+                fullRecorder.start(5000);
+            } catch (err) {
+                console.warn("Full interview recording unavailable", err);
+                fullRecorder = null;
+            }
+        }
+
+        async function stopAndUploadFullInterview() {
+            if (!fullRecorder) return;
+            if (fullRecorder.state !== "inactive") {
+                await new Promise(resolve => {
+                    const previousOnStop = fullRecorder.onstop;
+                    fullRecorder.onstop = event => {
+                        if (previousOnStop) previousOnStop(event);
+                        resolve();
+                    };
+                    fullRecorder.stop();
+                });
+            }
+
+            if (!fullInterviewChunks.length) return;
+            const type = fullMimeType || fullRecorder.mimeType || "video/webm";
+            const blob = new Blob(fullInterviewChunks, { type });
+            const formData = new FormData();
+            formData.append("file", blob, `interview.${extensionForMime(type, true)}`);
+            const response = await fetch(`/api/interviews/${sessionId}/full-video`, { method: "POST", body: formData });
+            if (!response.ok) throw new Error(await getErrorMessage(response));
+        }
+
+        async function completeInterview() {
+            if (!interviewStarted) return;
+            interviewStarted = false;
+            addAiMessage("Спасибо! Интервью завершено. Я сохраняю запись и передаю ответы на анализ.", "Интервьюер");
+            $("recordActions").classList.add("hidden");
+            $("composerState").textContent = "Завершаем интервью…";
+            $("processingState").classList.remove("hidden");
+            $("processingState").querySelector("span:last-child").textContent = "Сохраняем полную видеозапись и формируем результат…";
+
+            try {
+                try {
+                    await stopAndUploadFullInterview();
+                } catch (videoErr) {
+                    console.warn("Full video upload failed", videoErr);
+                    showToast("Ответы сохранены, но полную видеозапись загрузить не удалось", true);
+                }
+
+                const response = await fetch(`/api/interviews/${sessionId}/complete`, { method: "POST" });
+                if (!response.ok) throw new Error(await getErrorMessage(response));
+                stopStream(stream);
+                stream = null;
+                if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+                showOnly("finalScreen");
+            } catch (err) {
+                console.error(err);
+                interviewStarted = true;
+                $("processingState").classList.add("hidden");
+                showToast(`Не удалось завершить интервью: ${err.message}`, true);
+            }
+        }
+
+        function stopStream(targetStream) {
+            if (!targetStream) return;
+            targetStream.getTracks().forEach(track => track.stop());
+        }
+
+        window.addEventListener("beforeunload", event => {
+            if (!interviewStarted) return;
+            event.preventDefault();
+            event.returnValue = "";
+        });
+
         init();
     </script>
 </body>
