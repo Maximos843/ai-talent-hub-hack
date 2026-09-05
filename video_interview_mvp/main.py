@@ -686,4 +686,11 @@ async def report_page(session_id: int, request: Request, db: Session = Depends(g
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Запуск с HTTPS для доступа к камере и микрофону
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        ssl_keyfile="key.pem",
+        ssl_certfile="cert.pem"
+    )
