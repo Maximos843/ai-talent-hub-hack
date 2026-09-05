@@ -6,6 +6,7 @@ from sqlalchemy import inspect
 import database
 from main import app
 from services.llm_service import LLMService
+from services.media_service import media_metadata
 
 
 class ApplicationSmokeTests(unittest.TestCase):
@@ -13,18 +14,30 @@ class ApplicationSmokeTests(unittest.TestCase):
         paths = {route.path for route in app.routes}
         expected = {
             "/api/candidates",
+            "/api/candidates/{session_id}/status",
+            "/api/candidates/{session_id}",
             "/api/interviews/{session_id}/questions",
+            "/api/interviews/{session_id}/full-video",
+            "/api/interviews/submit-answer",
             "/api/reviews/{session_id}/hr",
             "/api/reviews/{session_id}/manager",
             "/api/reports/{session_id}",
         }
         self.assertTrue(expected.issubset(paths))
 
-    def test_new_workflow_tables_exist(self):
+    def test_workflow_and_media_tables_exist(self):
         database.init_db()
         table_names = set(inspect(database.engine).get_table_names())
         self.assertIn("interview_questions", table_names)
         self.assertIn("review_decisions", table_names)
+        self.assertIn("candidate_lifecycle", table_names)
+        self.assertIn("answer_media", table_names)
+
+    def test_missing_media_is_explicitly_not_playable(self):
+        metadata = media_metadata(None, fallback_duration_ms=1500)
+        self.assertFalse(metadata["exists"])
+        self.assertFalse(metadata["playable"])
+        self.assertEqual(metadata["duration_ms"], 1500)
 
     def test_mock_answer_and_report_have_expected_shape(self):
         service = LLMService(api_key="")
@@ -61,7 +74,10 @@ class ApplicationSmokeTests(unittest.TestCase):
                 ],
             )
         )
-        self.assertIn(report["recommendation"], {"подходит", "не подходит", "требуется дополнительная проверка"})
+        self.assertIn(
+            report["recommendation"],
+            {"подходит", "не подходит", "требуется дополнительная проверка"},
+        )
         self.assertGreaterEqual(report["overall_score"], 0)
         self.assertLessEqual(report["overall_score"], 10)
 

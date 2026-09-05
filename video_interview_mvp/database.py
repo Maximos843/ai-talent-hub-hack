@@ -63,12 +63,7 @@ class Question(Base):
 
 
 class SessionQuestion(Base):
-    """Vacancy-level question pool.
-
-    This is the reusable default pool for all candidates on a vacancy. HR can
-    approve/reject entries here. Candidate-specific copies live in
-    ``InterviewQuestion`` and can diverge safely from this pool.
-    """
+    """Vacancy-level question pool."""
 
     __tablename__ = "session_questions"
 
@@ -97,8 +92,8 @@ class InterviewSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     vacancy = relationship("Vacancy", back_populates="interview_sessions")
-    answers = relationship("Answer", back_populates="interview_session")
-    final_report = relationship("FinalReport", uselist=False, back_populates="interview_session")
+    answers = relationship("Answer", back_populates="interview_session", cascade="all, delete-orphan")
+    final_report = relationship("FinalReport", uselist=False, back_populates="interview_session", cascade="all, delete-orphan")
     interview_questions = relationship(
         "InterviewQuestion",
         back_populates="interview_session",
@@ -111,6 +106,31 @@ class InterviewSession(Base):
         cascade="all, delete-orphan",
         order_by="ReviewDecision.reviewed_at",
     )
+    lifecycle = relationship(
+        "CandidateLifecycle",
+        uselist=False,
+        back_populates="interview_session",
+        cascade="all, delete-orphan",
+    )
+
+
+class CandidateLifecycle(Base):
+    """HR-owned business status independent from the technical review workflow.
+
+    Workflow states (awaiting_hr, awaiting_manager, ...) describe where the review
+    is. This field describes the recruiter's own pipeline and can be changed by HR
+    without corrupting the approval hierarchy.
+    """
+
+    __tablename__ = "candidate_lifecycle"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("interview_sessions.id"), unique=True, nullable=False, index=True)
+    status = Column(String, nullable=False, default="active")  # active / hold / rejected / hired
+    note = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    interview_session = relationship("InterviewSession", back_populates="lifecycle")
 
 
 class InterviewQuestion(Base):
@@ -154,6 +174,29 @@ class Answer(Base):
 
     interview_session = relationship("InterviewSession", back_populates="answers")
     session_question = relationship("SessionQuestion", back_populates="answers")
+    media = relationship("AnswerMedia", uselist=False, back_populates="answer", cascade="all, delete-orphan")
+
+
+class AnswerMedia(Base):
+    """Timing and durable media metadata for one answer.
+
+    Full video is recorded continuously. start/end offsets allow the backend to
+    cut a stable per-question clip after the full interview upload finishes.
+    """
+
+    __tablename__ = "answer_media"
+
+    id = Column(Integer, primary_key=True, index=True)
+    answer_id = Column(Integer, ForeignKey("answers.id"), unique=True, nullable=False, index=True)
+    start_ms = Column(Integer, nullable=False, default=0)
+    end_ms = Column(Integer, nullable=False, default=0)
+    audio_duration_ms = Column(Integer)
+    video_duration_ms = Column(Integer)
+    audio_size_bytes = Column(Integer)
+    video_size_bytes = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    answer = relationship("Answer", back_populates="media")
 
 
 class FinalReport(Base):
@@ -177,11 +220,7 @@ class FinalReport(Base):
 
 
 class ReviewDecision(Base):
-    """Human approval chain for an interview result.
-
-    HR always reviews first. A hiring manager can make the final decision only
-    after HR has explicitly approved the candidate for the next stage.
-    """
+    """Human approval chain for an interview result."""
 
     __tablename__ = "review_decisions"
 
@@ -197,9 +236,9 @@ class ReviewDecision(Base):
     reviewer = relationship("User", back_populates="review_decisions")
 
 
-# New functionality is stored in new tables, so create_all is enough and does
-# not require a destructive migration for existing hackathon SQLite databases.
 def init_db():
+    # New features use new tables, therefore create_all upgrades existing hackathon
+    # SQLite databases without destructive ALTER migrations.
     Base.metadata.create_all(bind=engine)
 
 
