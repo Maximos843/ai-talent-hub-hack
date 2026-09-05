@@ -196,7 +196,7 @@ def _adaptive_follow_up_report(session_id: int, db: Session) -> list[dict]:
                 "decision_confidence_0_1": decision.confidence_0_1,
                 "transcript": (answer.transcript_corrected or answer.transcript_raw or "") if answer else "",
                 "score_0_10": answer.score if answer else None,
-                "analysis": answer.llm_analysis or {} if answer else {},
+                "analysis": (answer.llm_analysis or {}) if answer else {},
             })
         result.append({
             "root_question_id": root.id,
