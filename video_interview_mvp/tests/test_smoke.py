@@ -1,13 +1,17 @@
 import asyncio
 import unittest
+from pathlib import Path
 
 from sqlalchemy import inspect
 
 import database
-from app import app, legacy_app
+from app import ALLOWED_PROCTOR_EVENTS, _clean_proctor_metadata, app, legacy_app
 from services.auth_service import hash_password, verify_password
 from services.llm_service import LLMService
 from services.media_service import media_metadata
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 class ApplicationSmokeTests(unittest.TestCase):
@@ -28,6 +32,8 @@ class ApplicationSmokeTests(unittest.TestCase):
 
         gateway_paths = {route.path for route in app.routes}
         expected_gateway = {
+            "/api/auth/bootstrap-status",
+            "/api/auth/invite-status",
             "/api/auth/login",
             "/api/auth/logout",
             "/api/auth/me",
@@ -66,11 +72,56 @@ class ApplicationSmokeTests(unittest.TestCase):
         invalid, _ = verify_password("wrong-password", encoded)
         self.assertFalse(invalid)
 
-    def test_legacy_plaintext_password_can_be_upgraded(self):
-        valid, upgraded = verify_password("legacy-pass", "legacy-pass")
+    def test_legacy_plaintext_password_can_be_upgraded_even_if_short(self):
+        # Previous MVP accepted short/plaintext passwords. Login must migrate them
+        # instead of applying the new-account length policy and throwing ValueError.
+        valid, upgraded = verify_password("old1", "old1")
         self.assertTrue(valid)
         self.assertIsNotNone(upgraded)
         self.assertTrue(upgraded.startswith("pbkdf2_sha256$"))
+        valid_after, second_upgrade = verify_password("old1", upgraded)
+        self.assertTrue(valid_after)
+        self.assertIsNone(second_upgrade)
+
+    def test_face_proctor_events_are_allowed_but_raw_content_is_dropped(self):
+        expected = {
+            "vision_ready",
+            "vision_unavailable",
+            "face_missing",
+            "face_returned",
+            "multiple_faces",
+            "single_face_returned",
+            "head_away",
+            "head_returned",
+            "gaze_away",
+            "gaze_returned",
+        }
+        self.assertTrue(expected.issubset(ALLOWED_PROCTOR_EVENTS))
+        cleaned = _clean_proctor_metadata(
+            {
+                "duration_ms": 2500,
+                "face_count": 2,
+                "delegate": "GPU",
+                "frame": "base64-image-must-never-survive",
+                "landmarks": [1, 2, 3],
+                "clipboard_text": "secret",
+            }
+        )
+        self.assertEqual(cleaned["duration_ms"], 2500)
+        self.assertEqual(cleaned["face_count"], 2)
+        self.assertEqual(cleaned["delegate"], "GPU")
+        self.assertNotIn("frame", cleaned)
+        self.assertNotIn("landmarks", cleaned)
+        self.assertNotIn("clipboard_text", cleaned)
+
+    def test_mediapipe_module_is_non_blocking_and_reuses_interview_video(self):
+        source = (BASE_DIR / "static" / "mediapipe_proctor.js").read_text(encoding="utf-8")
+        self.assertIn("FaceLandmarker", source)
+        self.assertIn("face_landmarker.task", source)
+        self.assertIn("document.getElementById('video')", source)
+        self.assertIn("detectForVideo", source)
+        self.assertIn("vision_unavailable", source)
+        self.assertNotIn("getUserMedia(", source)  # must not open a second camera stream
 
     def test_missing_media_is_explicitly_not_playable(self):
         metadata = media_metadata(None, fallback_duration_ms=1500)
