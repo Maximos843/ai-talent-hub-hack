@@ -16,6 +16,7 @@ RECOMMENDATIONS = {"подходит", "не подходит", "требует�
 COMPETENCY_STATUSES = {"подтверждена", "частично подтверждена", "не проверена", "есть риск"}
 COVERAGE_STATUSES = {"подтверждено", "частично подтверждено", "не проверено", "есть риск"}
 ISSUE_TYPES = {"риск", "противоречие", "зона роста"}
+MOTIVATION_COMPETENCIES = {"motivation", "motivational", "мотивация"}
 
 
 class LLMService:
@@ -135,15 +136,22 @@ class LLMService:
             raw = self._parse_json(await self._call_llm([
                 {"role": "user", "content": self._load_prompt("score_question.md", input_data)}
             ]))
+            quotes = self._quotes(raw.get("evidence_quotes"), [input_data["transcript"]])
             covered = self._subset(raw.get("covered_must_have"), input_data["must_have"])
             missing = [item for item in input_data["must_have"] if item not in covered]
+            red_flags_found = self._subset(raw.get("red_flags_found"), input_data["red_flags"])
+            # A red flag must have some verbatim answer evidence; without any
+            # valid quote we conservatively drop it instead of treating silence
+            # as a negative signal.
+            if not quotes:
+                red_flags_found = []
             result = {
                 "score_0_10": max(0, min(10, int(round(float(raw.get("score_0_10", 5)))))),
                 "covered_must_have": covered,
                 "missing_must_have": missing,
                 "covered_nice_to_have": self._subset(raw.get("covered_nice_to_have"), input_data["nice_to_have"]),
-                "red_flags_found": self._subset(raw.get("red_flags_found"), input_data["red_flags"]),
-                "evidence_quotes": self._quotes(raw.get("evidence_quotes"), [input_data["transcript"]]),
+                "red_flags_found": red_flags_found,
+                "evidence_quotes": quotes,
                 "summary": str(raw.get("summary") or "Оценка требует ручной проверки.").strip(),
                 "confidence_0_1": max(0.0, min(1.0, float(raw.get("confidence_0_1", 0.5)))),
             }
@@ -159,8 +167,6 @@ class LLMService:
                 "confidence_0_1": 0.0,
             }
 
-        # Compatibility aliases for existing report UI/storage while the canonical
-        # schema above remains the single source for scoring semantics.
         result.update({
             "score": float(result["score_0_10"]),
             "analysis": result["summary"],
@@ -260,17 +266,9 @@ class LLMService:
         answers_data: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         normalized_answers = []
-        scores = []
+        technical_scores = []
         transcripts = []
         for index, answer in enumerate(answers_data, 1):
-            score = answer.get("score_0_10", answer.get("score"))
-            if score is not None:
-                try:
-                    scores.append(max(0.0, min(10.0, float(score))))
-                except (TypeError, ValueError):
-                    pass
-            transcript = str(answer.get("transcript") or "")
-            transcripts.append(transcript)
             evaluation = answer.get("evaluation") if isinstance(answer.get("evaluation"), dict) else {
                 "score_0_10": answer.get("score_0_10", answer.get("score", 5)),
                 "covered_must_have": answer.get("covered_must_have", []),
@@ -281,15 +279,24 @@ class LLMService:
                 "summary": answer.get("summary", answer.get("analysis", "")),
                 "confidence_0_1": answer.get("confidence_0_1", answer.get("confidence", 0.5)),
             }
+            competency = str(answer.get("competency", "general") or "general")
+            score = evaluation.get("score_0_10", answer.get("score_0_10", answer.get("score")))
+            if competency.strip().lower() not in MOTIVATION_COMPETENCIES and score is not None:
+                try:
+                    technical_scores.append(max(0.0, min(10.0, float(score))))
+                except (TypeError, ValueError):
+                    pass
+            transcript = str(answer.get("transcript") or "")
+            transcripts.append(transcript)
             normalized_answers.append({
                 "question_id": str(answer.get("question_id") or index),
                 "question_text": answer.get("question_text", answer.get("question", "")),
-                "competency": answer.get("competency", "general"),
+                "competency": competency,
                 "transcript": transcript,
                 "evaluation": evaluation,
             })
 
-        technical_average = sum(scores) / len(scores) if scores else 5.0
+        technical_average = sum(technical_scores) / len(technical_scores) if technical_scores else 5.0
         input_data = {
             "vacancy_requirements": vacancy_requirements or vacancy_title,
             "technical_average_0_10": round(technical_average, 2),
@@ -333,8 +340,6 @@ class LLMService:
                 "uncovered_vacancy_topics": [],
             }
 
-        # Storage compatibility: existing DB columns are reused without a destructive
-        # migration, but they now carry the canonical structured evaluation.
         result.update({
             "overall_score": result["overall_score_0_10"],
             "weaknesses": result["issues"],
