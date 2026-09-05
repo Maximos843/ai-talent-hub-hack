@@ -37,9 +37,12 @@ jobs:
               for route in legacy.routes
           ]
           assert sum(path == "/api/questions" and "GET" in methods for path, methods in pairs) == 1
+          assert sum(path == "/api/interviews/{session_token}" and "GET" in methods for path, methods in pairs) == 1
+          assert sum(path == "/api/interviews/submit-answer" and "POST" in methods for path, methods in pairs) == 1
+          assert sum(path == "/api/interviews/correct-transcript" and "POST" in methods for path, methods in pairs) == 1
           assert sum(path == "/api/interviews/{session_id}/complete" and "POST" in methods for path, methods in pairs) == 1
           assert sum(path == "/api/reports/{session_id}" and "GET" in methods for path, methods in pairs) == 1
-          print("main:app + canonical business routes OK")
+          print("main:app + adaptive canonical business routes OK")
           PY
       - run: python -m unittest discover -s tests -v
       - name: Check browser scripts syntax
@@ -49,3 +52,5 @@ jobs:
           node --check static/mediapipe_proctor.js
           node --check static/question_bank_ui.js
           node --check static/scoring_report_ui.js
+          node --check static/adaptive_followups.js
+          node --check static/adaptive_followup_report.js
