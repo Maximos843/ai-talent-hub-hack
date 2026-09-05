@@ -17,16 +17,23 @@ import sys
 import tempfile
 from pathlib import Path
 
+import database
 import legacy_main
 from legacy_main import _manager_can_view
 from legacy_main import app as _legacy_app
 
+# Register additive adaptive tables before question-bank seeding touches them.
+import adaptive_models  # noqa: F401
+
+database.init_db()
 app = _legacy_app
 
 # Replace only the legacy routes whose contracts are now canonicalized. This
 # keeps the rest of the battle-tested MVP business flow untouched.
 _replaced = {
     ("/api/questions", "GET"),
+    ("/api/interviews/{session_token}", "GET"),
+    ("/api/interviews/correct-transcript", "POST"),
     ("/api/interviews/{session_id}/complete", "POST"),
     ("/api/reports/{session_id}", "GET"),
 }
@@ -39,13 +46,24 @@ _legacy_app.router.routes = [
     )
 ]
 
-# Register DB-backed question bank and schema-safe scoring routes before the
-# business app is mounted by the auth gateway.
+# Register DB-backed question bank, adaptive probing and schema-safe scoring
+# before the business app is mounted by the auth gateway.
+from adaptive_routes import router as adaptive_router, snapshot_probe_configs
 from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
 from scoring_routes import router as scoring_router
 
 legacy_main._load_question_bank = load_question_bank_snapshot
+_original_copy_default_questions = legacy_main._copy_default_questions_to_session
+
+
+def _copy_default_questions_with_probe_snapshot(session, db):
+    _original_copy_default_questions(session, db)
+    snapshot_probe_configs(session, db)
+
+
+legacy_main._copy_default_questions_to_session = _copy_default_questions_with_probe_snapshot
 _legacy_app.include_router(question_bank_router)
+_legacy_app.include_router(adaptive_router)
 _legacy_app.include_router(scoring_router)
 
 # app.py imports ``main`` while constructing the gateway. In that case expose
