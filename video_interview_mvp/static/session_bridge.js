@@ -126,7 +126,16 @@
     } catch (_) {}
   }
 
+  function loadQuestionBankUi() {
+    if (user.role !== 'hr' || !location.pathname.startsWith('/dashboard') || document.querySelector('script[data-question-bank-ui]')) return;
+    const script = document.createElement('script');
+    script.src = '/static/question_bank_ui.js';
+    script.dataset.questionBankUi = '1';
+    document.body.appendChild(script);
+  }
+
   addInviteControl();
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addInviteControl, { once: true });
+  loadQuestionBankUi();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { addInviteControl(); loadQuestionBankUi(); }, { once: true });
   setTimeout(addProctorReport, 900);
 })();
