@@ -17,10 +17,19 @@ import sys
 import tempfile
 from pathlib import Path
 
+import legacy_main
 from legacy_main import _manager_can_view
 from legacy_main import app as _legacy_app
 
 app = _legacy_app
+
+# Register DB-backed question-bank routes on the legacy business app before it
+# is mounted by the auth gateway. Also make vacancy suggestion read the same DB
+# bank, so HR edits affect future vacancy pools without a second JSON source.
+from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
+
+legacy_main._load_question_bank = load_question_bank_snapshot
+_legacy_app.include_router(question_bank_router)
 
 # app.py imports ``main`` while constructing the gateway. In that case expose
 # only the legacy surface to avoid recursion. On a normal ``import main`` we
