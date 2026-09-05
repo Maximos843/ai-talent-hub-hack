@@ -7,7 +7,8 @@
   let editingId = null;
 
   const esc = (v = '') => String(v).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
-  const splitLines = value => String(value || '').split(/\n|,/).map(x => x.trim()).filter(Boolean);
+  const splitLines = value => String(value || '').split(/\n/).map(x => x.trim()).filter(Boolean);
+  const splitTags = value => String(value || '').split(/,|\n/).map(x => x.trim()).filter(Boolean);
   const toastMsg = (message, error = false) => {
     if (typeof window.toast === 'function') return window.toast(message, error);
     alert(message);
@@ -38,7 +39,7 @@
         <div><label class="text-sm font-semibold">Вопрос</label><textarea id="qbQuestion" rows="3" class="w-full mt-2 px-4 py-3 border rounded-xl"></textarea></div>
         <div class="grid md:grid-cols-2 gap-4"><div><label class="text-sm font-semibold">Тема / competency</label><input id="qbEditCompetency" class="w-full mt-2 px-4 py-3 border rounded-xl" placeholder="backend"></div><div><label class="text-sm font-semibold">Теги</label><input id="qbTags" class="w-full mt-2 px-4 py-3 border rounded-xl" placeholder="python, api, backend"></div></div>
         <div><label class="text-sm font-semibold">Референсный ответ</label><textarea id="qbReference" rows="4" class="w-full mt-2 px-4 py-3 border rounded-xl"></textarea></div>
-        <div class="grid md:grid-cols-3 gap-4"><div><label class="text-sm font-semibold">Must have</label><textarea id="qbMust" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl" placeholder="По одному пункту на строку"></textarea></div><div><label class="text-sm font-semibold">Nice to have</label><textarea id="qbNice" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl"></textarea></div><div><label class="text-sm font-semibold">Red flags</label><textarea id="qbRed" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl"></textarea></div></div>
+        <div class="grid md:grid-cols-3 gap-4"><div><label class="text-sm font-semibold">Must have</label><textarea id="qbMust" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl" placeholder="По одному пункту на строку"></textarea></div><div><label class="text-sm font-semibold">Nice to have</label><textarea id="qbNice" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl" placeholder="По одному пункту на строку"></textarea></div><div><label class="text-sm font-semibold">Red flags</label><textarea id="qbRed" rows="6" class="w-full mt-2 px-3 py-3 border rounded-xl" placeholder="По одному пункту на строку"></textarea></div></div>
       </div>
       <div class="p-6 border-t flex justify-end gap-3"><button id="qbCancel" class="px-4 py-2.5">Отмена</button><button id="qbSave" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold">Сохранить</button></div>
     </div>`;
@@ -67,7 +68,7 @@
     const tag = document.getElementById('qbTag').value;
     const competency = document.getElementById('qbCompetency').value;
     const filtered = items.filter(item => {
-      const haystack = [item.question, item.competency, ...(item.tags || []), item.reference_answer, ...(item.must_have || [])].join(' ').toLowerCase();
+      const haystack = [item.question, item.competency, ...(item.tags || []), item.reference_answer, ...(item.must_have || []), ...(item.nice_to_have || []), ...(item.red_flags || [])].join(' ').toLowerCase();
       return (!search || haystack.includes(search)) && (!tag || (item.tags || []).includes(tag)) && (!competency || item.competency === competency);
     });
     const groups = new Map();
@@ -107,7 +108,7 @@
     const payload = {
       question: document.getElementById('qbQuestion').value.trim(),
       competency: document.getElementById('qbEditCompetency').value.trim() || 'general',
-      tags: splitLines(document.getElementById('qbTags').value),
+      tags: splitTags(document.getElementById('qbTags').value),
       reference_answer: document.getElementById('qbReference').value.trim(),
       must_have: splitLines(document.getElementById('qbMust').value),
       nice_to_have: splitLines(document.getElementById('qbNice').value),
