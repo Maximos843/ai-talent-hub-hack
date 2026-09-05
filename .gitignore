@@ -1,9 +1,6 @@
-```
-# Logs
-*.log
-
-# Database
+*.db
 video_interview.db
+video_interview_mvp/video_interview.db
 
 # Environment
 .env
@@ -42,4 +39,3 @@ Thumbs.db
 
 # Temp files
 *.tmp
-```
