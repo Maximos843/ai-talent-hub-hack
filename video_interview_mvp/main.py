@@ -17,10 +17,36 @@ import sys
 import tempfile
 from pathlib import Path
 
+import legacy_main
 from legacy_main import _manager_can_view
 from legacy_main import app as _legacy_app
 
 app = _legacy_app
+
+# Replace only the legacy routes whose contracts are now canonicalized. This
+# keeps the rest of the battle-tested MVP business flow untouched.
+_replaced = {
+    ("/api/questions", "GET"),
+    ("/api/interviews/{session_id}/complete", "POST"),
+    ("/api/reports/{session_id}", "GET"),
+}
+_legacy_app.router.routes = [
+    route
+    for route in _legacy_app.router.routes
+    if not any(
+        getattr(route, "path", None) == path and method in (getattr(route, "methods", set()) or set())
+        for path, method in _replaced
+    )
+]
+
+# Register DB-backed question bank and schema-safe scoring routes before the
+# business app is mounted by the auth gateway.
+from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
+from scoring_routes import router as scoring_router
+
+legacy_main._load_question_bank = load_question_bank_snapshot
+_legacy_app.include_router(question_bank_router)
+_legacy_app.include_router(scoring_router)
 
 # app.py imports ``main`` while constructing the gateway. In that case expose
 # only the legacy surface to avoid recursion. On a normal ``import main`` we

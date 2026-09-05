@@ -126,7 +126,25 @@
     } catch (_) {}
   }
 
+  function injectScript(src, marker) {
+    if (document.querySelector(`script[data-${marker}]`)) return;
+    const script = document.createElement('script');
+    script.src = src;
+    script.setAttribute(`data-${marker}`, '1');
+    document.body.appendChild(script);
+  }
+
+  function loadEnhancements() {
+    if (user.role === 'hr' && location.pathname.startsWith('/dashboard')) {
+      injectScript('/static/question_bank_ui.js', 'question-bank-ui');
+    }
+    if (location.pathname.startsWith('/report/')) {
+      injectScript('/static/scoring_report_ui.js', 'scoring-report-ui');
+    }
+  }
+
   addInviteControl();
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addInviteControl, { once: true });
+  loadEnhancements();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { addInviteControl(); loadEnhancements(); }, { once: true });
   setTimeout(addProctorReport, 900);
 })();
