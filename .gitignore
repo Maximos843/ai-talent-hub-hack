@@ -1,5 +1,3 @@
-```
-# Database files
 *.db
 video_interview.db
 video_interview_mvp/video_interview.db
@@ -48,4 +46,3 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 coverage/
-```
