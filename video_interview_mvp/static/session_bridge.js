@@ -140,6 +140,7 @@
     }
     if (location.pathname.startsWith('/report/')) {
       injectScript('/static/scoring_report_ui.js', 'scoring-report-ui');
+      injectScript('/static/adaptive_followup_report.js', 'adaptive-followup-report');
     }
   }
 
