@@ -2,6 +2,16 @@
   const token = window.__INTERVIEW_TOKEN__;
   if (!token) return;
 
+  // Adaptive follow-ups reuse the existing candidate recording/ASR controls.
+  // Load the controller from the already-injected local proctor script so the
+  // large interview template itself stays untouched.
+  if (!document.querySelector('script[data-adaptive-followups]')) {
+    const adaptiveScript = document.createElement('script');
+    adaptiveScript.src = '/static/adaptive_followups.js';
+    adaptiveScript.dataset.adaptiveFollowups = '1';
+    document.body.appendChild(adaptiveScript);
+  }
+
   let active = false;
   let queue = [];
   let hiddenStartedAt = null;
