@@ -1,13 +1,22 @@
 import asyncio
 import unittest
+import uuid
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
 import database
-from app import app, legacy_app
-from services.auth_service import hash_password, verify_password
+from app import ALLOWED_PROCTOR_EVENTS, _clean_proctor_metadata, app, legacy_app
+from database import User
+from mvp_models import AuthSession, WorkspaceInvite
+from services.auth_service import SESSION_COOKIE, hash_password, verify_password
 from services.llm_service import LLMService
 from services.media_service import media_metadata
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 class ApplicationSmokeTests(unittest.TestCase):
@@ -28,6 +37,8 @@ class ApplicationSmokeTests(unittest.TestCase):
 
         gateway_paths = {route.path for route in app.routes}
         expected_gateway = {
+            "/api/auth/bootstrap-status",
+            "/api/auth/invite-status",
             "/api/auth/login",
             "/api/auth/logout",
             "/api/auth/me",
@@ -66,11 +77,143 @@ class ApplicationSmokeTests(unittest.TestCase):
         invalid, _ = verify_password("wrong-password", encoded)
         self.assertFalse(invalid)
 
-    def test_legacy_plaintext_password_can_be_upgraded(self):
-        valid, upgraded = verify_password("legacy-pass", "legacy-pass")
+    def test_legacy_plaintext_password_can_be_upgraded_even_if_short(self):
+        valid, upgraded = verify_password("old1", "old1")
         self.assertTrue(valid)
         self.assertIsNotNone(upgraded)
         self.assertTrue(upgraded.startswith("pbkdf2_sha256$"))
+        valid_after, second_upgrade = verify_password("old1", upgraded)
+        self.assertTrue(valid_after)
+        self.assertIsNone(second_upgrade)
+
+    def test_legacy_user_can_login_and_get_cookie_session(self):
+        username = f"legacy_{uuid.uuid4().hex[:10]}"
+        db = database.SessionLocal()
+        user = User(username=username, password_hash="1234", role="hr", full_name="Legacy Test")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        user_id = user.id
+        db.close()
+
+        client = TestClient(app)
+        try:
+            response = client.post("/api/auth/login", json={"username": username, "password": "1234"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn(SESSION_COOKIE, client.cookies)
+            me = client.get("/api/auth/me")
+            self.assertEqual(me.status_code, 200, me.text)
+            self.assertEqual(me.json()["username"], username)
+
+            db = database.SessionLocal()
+            migrated = db.query(User).filter(User.id == user_id).first()
+            self.assertTrue(migrated.password_hash.startswith("pbkdf2_sha256$"))
+            db.close()
+        finally:
+            db = database.SessionLocal()
+            db.query(AuthSession).filter(AuthSession.user_id == user_id).delete(synchronize_session=False)
+            db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
+            db.commit()
+            db.close()
+
+    def test_hr_invite_registers_manager_without_shared_key(self):
+        suffix = uuid.uuid4().hex[:10]
+        hr_name = f"hr_{suffix}"
+        manager_name = f"manager_{suffix}"
+        db = database.SessionLocal()
+        hr = User(username=hr_name, password_hash=hash_password("hr-password-123"), role="hr", full_name="HR Test")
+        db.add(hr)
+        db.commit()
+        db.refresh(hr)
+        hr_id = hr.id
+        db.close()
+
+        client = TestClient(app)
+        manager_id = None
+        try:
+            login = client.post("/api/auth/login", json={"username": hr_name, "password": "hr-password-123"})
+            self.assertEqual(login.status_code, 200, login.text)
+            invitation = client.post("/api/auth/invitations", json={"role": "hiring_manager"})
+            self.assertEqual(invitation.status_code, 200, invitation.text)
+            token = parse_qs(urlparse(invitation.json()["invite_url"]).query)["invite"][0]
+
+            status = client.get("/api/auth/invite-status", params={"token": token})
+            self.assertEqual(status.status_code, 200)
+            self.assertTrue(status.json()["valid"])
+            self.assertEqual(status.json()["role"], "hiring_manager")
+
+            registration = client.post(
+                "/api/auth/register",
+                json={
+                    "username": manager_name,
+                    "password": "manager-password-123",
+                    "full_name": "Manager Test",
+                    "invite_code": token,
+                },
+            )
+            self.assertEqual(registration.status_code, 200, registration.text)
+            self.assertEqual(registration.json()["role"], "hiring_manager")
+
+            db = database.SessionLocal()
+            manager = db.query(User).filter(User.username == manager_name).first()
+            self.assertIsNotNone(manager)
+            manager_id = manager.id
+            invite = db.query(WorkspaceInvite).filter(WorkspaceInvite.used_by_id == manager_id).first()
+            self.assertIsNotNone(invite.used_at)
+            db.close()
+        finally:
+            db = database.SessionLocal()
+            ids = [x for x in [hr_id, manager_id] if x is not None]
+            if ids:
+                db.query(AuthSession).filter(AuthSession.user_id.in_(ids)).delete(synchronize_session=False)
+            if manager_id is not None:
+                db.query(WorkspaceInvite).filter(WorkspaceInvite.used_by_id == manager_id).delete(synchronize_session=False)
+            db.query(WorkspaceInvite).filter(WorkspaceInvite.created_by_id == hr_id).delete(synchronize_session=False)
+            if manager_id is not None:
+                db.query(User).filter(User.id == manager_id).delete(synchronize_session=False)
+            db.query(User).filter(User.id == hr_id).delete(synchronize_session=False)
+            db.commit()
+            db.close()
+
+    def test_face_proctor_events_are_allowed_but_raw_content_is_dropped(self):
+        expected = {
+            "vision_ready",
+            "vision_unavailable",
+            "face_missing",
+            "face_returned",
+            "multiple_faces",
+            "single_face_returned",
+            "head_away",
+            "head_returned",
+            "gaze_away",
+            "gaze_returned",
+        }
+        self.assertTrue(expected.issubset(ALLOWED_PROCTOR_EVENTS))
+        cleaned = _clean_proctor_metadata(
+            {
+                "duration_ms": 2500,
+                "face_count": 2,
+                "delegate": "GPU",
+                "frame": "base64-image-must-never-survive",
+                "landmarks": [1, 2, 3],
+                "clipboard_text": "secret",
+            }
+        )
+        self.assertEqual(cleaned["duration_ms"], 2500)
+        self.assertEqual(cleaned["face_count"], 2)
+        self.assertEqual(cleaned["delegate"], "GPU")
+        self.assertNotIn("frame", cleaned)
+        self.assertNotIn("landmarks", cleaned)
+        self.assertNotIn("clipboard_text", cleaned)
+
+    def test_mediapipe_module_is_non_blocking_and_reuses_interview_video(self):
+        source = (BASE_DIR / "static" / "mediapipe_proctor.js").read_text(encoding="utf-8")
+        self.assertIn("FaceLandmarker", source)
+        self.assertIn("face_landmarker.task", source)
+        self.assertIn("document.getElementById('video')", source)
+        self.assertIn("detectForVideo", source)
+        self.assertIn("vision_unavailable", source)
+        self.assertNotIn("getUserMedia(", source)
 
     def test_missing_media_is_explicitly_not_playable(self):
         metadata = media_metadata(None, fallback_duration_ms=1500)

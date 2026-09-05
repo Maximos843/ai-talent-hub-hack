@@ -24,3 +24,8 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m compileall -q .
       - run: python -m unittest discover -s tests -v
+      - name: Check browser scripts syntax
+        run: |
+          node --check static/proctor.js
+          node --check static/session_bridge.js
+          node --check static/mediapipe_proctor.js

@@ -29,6 +29,10 @@
     if (queue.length >= 8) flush();
   }
 
+  // MediaPipe module uses the same queue/batching path. It never receives access
+  // to auth/session credentials and cannot upload images or landmarks.
+  window.__proctorPush = push;
+
   async function flush(useBeacon = false) {
     if (!queue.length) return;
     const batch = queue.splice(0, 30);
@@ -51,30 +55,61 @@
     }
   }
 
-  function startTracking() {
-    if (active) return;
-    active = true;
-    push('fullscreen_enter', { duration_ms: 0 });
-    flushTimer = setInterval(() => flush(), 5000);
-
+  function attachTrackListeners() {
     const video = document.getElementById('video');
     const stream = video?.srcObject;
-    if (stream) {
-      stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => push('camera_ended')));
-      stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => push('microphone_ended')));
-    }
+    if (!stream) return;
+    stream.getVideoTracks().forEach(track => track.addEventListener('ended', () => push('camera_ended'), { once: true }));
+    stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => push('microphone_ended'), { once: true }));
+  }
+
+  function startTracking() {
+    if (active) return;
+    const interview = document.getElementById('interview');
+    const video = document.getElementById('video');
+    // Start only after the product flow really entered the interview. A rejected
+    // /start request must not create false proctor events or spin up MediaPipe.
+    if (!interview || interview.classList.contains('hidden') || !video?.srcObject) return false;
+
+    active = true;
+    push(document.fullscreenElement ? 'fullscreen_enter' : 'fullscreen_exit');
+    attachTrackListeners();
+    flushTimer = setInterval(() => flush(), 5000);
+    window.dispatchEvent(new CustomEvent('talent-interview-started'));
+    return true;
+  }
+
+  function stopTracking() {
+    if (!active) return;
+    active = false;
+    window.dispatchEvent(new CustomEvent('talent-interview-finished'));
+    if (flushTimer) clearInterval(flushTimer);
+    flushTimer = null;
+    flush(true);
   }
 
   const startButton = document.getElementById('startInterview');
   if (startButton) {
     startButton.addEventListener('click', () => {
-      // Fullscreen is best-effort: browsers may reject it, and interview must not
-      // fail if they do. The user has just clicked the explicit start control.
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         document.documentElement.requestFullscreen().catch(() => {});
       }
-      setTimeout(startTracking, 700);
+      let attempts = 0;
+      const waitForInterview = () => {
+        attempts += 1;
+        if (startTracking() || attempts >= 12) return;
+        setTimeout(waitForInterview, 250);
+      };
+      setTimeout(waitForInterview, 250);
     }, { capture: true });
+  }
+
+  // Stop ML/browser tracking as soon as the existing flow reveals its final page.
+  const finalSection = document.getElementById('final');
+  if (finalSection && window.MutationObserver) {
+    new MutationObserver(() => {
+      if (!finalSection.classList.contains('hidden')) stopTracking();
+    }).observe(finalSection, { attributes: true, attributeFilter: ['class'] });
   }
 
   document.addEventListener('visibilitychange', () => {
@@ -114,8 +149,5 @@
   window.addEventListener('offline', () => push('network_offline'));
   window.addEventListener('online', () => push('network_online'));
 
-  window.addEventListener('pagehide', () => {
-    if (flushTimer) clearInterval(flushTimer);
-    flush(true);
-  });
+  window.addEventListener('pagehide', stopTracking);
 })();

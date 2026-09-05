@@ -1,10 +1,8 @@
-"""Secure-ish MVP gateway around the existing FastAPI application.
+"""MVP gateway for server-side auth and interview proctoring.
 
-The legacy application still owns the interview/business routes. This gateway
-adds server-side auth sessions and proctoring without a risky rewrite of the
-working hackathon flow. For authenticated legacy routes it injects an internal
-Basic header only after a valid HttpOnly session cookie has been resolved.
-Browser code never stores user passwords anymore.
+The original FastAPI application still owns the business/interview routes. This
+gateway keeps that stable flow intact while adding opaque cookie sessions,
+one-time workspace invitations and non-scoring proctor signals.
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import database
-import mvp_models  # noqa: F401 - registers additive SQLAlchemy tables before create_all
+import mvp_models  # noqa: F401 - register additive SQLAlchemy tables before create_all
 from database import InterviewSession, User, Vacancy, get_db
 from mvp_models import ProctorEvent, WorkspaceInvite
 from services.auth_service import (
@@ -33,12 +31,13 @@ from services.auth_service import (
     create_invite,
     create_session,
     hash_password,
+    inspect_invite,
     resolve_session,
     revoke_session,
     verify_password,
 )
 
-# Import after mvp_models so main.init_db() creates the additive tables as well.
+# Import after mvp_models so main.init_db() creates additive tables as well.
 import main as legacy_main
 
 
@@ -46,7 +45,7 @@ database.init_db()
 legacy_app = legacy_main.app
 BASE_DIR = Path(__file__).parent
 
-app = FastAPI(title="Talent Interview MVP", version="1.5.0")
+app = FastAPI(title="Talent Interview MVP", version="1.6.0")
 
 
 class LoginPayload(BaseModel):
@@ -59,7 +58,7 @@ class RegisterPayload(BaseModel):
     password: str
     full_name: Optional[str] = ""
     invite_code: Optional[str] = ""
-    role: Optional[str] = "hr"  # only used for the first bootstrap account
+    role: Optional[str] = "hr"  # used only for first workspace bootstrap
 
 
 class InvitePayload(BaseModel):
@@ -89,12 +88,10 @@ def _looks_like_candidate_api(method: str, path: str) -> bool:
     if len(parts) < 3 or parts[:2] != ["api", "interviews"]:
         return False
     tail = parts[2:]
-    # GET /api/interviews/{uuid}; POST .../{uuid}/start
     if method == "GET" and len(tail) == 1 and "-" in tail[0]:
         return True
     if method == "POST" and len(tail) == 2 and "-" in tail[0] and tail[1] == "start":
         return True
-    # POST /api/interviews/{numeric_session}/full-video|complete
     if method == "POST" and len(tail) == 2 and tail[0].isdigit() and tail[1] in {"full-video", "complete"}:
         return True
     return False
@@ -131,11 +128,7 @@ def _set_session_cookie(response: Response, token: str, request: Request) -> Non
 
 
 def _inject_internal_basic(request: Request, user: User) -> None:
-    """Satisfy legacy HTTPBasic dependencies without exposing credentials.
-
-    The header exists only inside this ASGI request after the opaque session has
-    already been authenticated by this gateway.
-    """
+    """Satisfy legacy HTTPBasic dependencies after cookie auth succeeded."""
     raw = f"{user.username}:{user.password_hash}".encode("utf-8")
     value = b"Basic " + base64.b64encode(raw)
     headers = [(key, val) for key, val in request.scope.get("headers", []) if key.lower() != b"authorization"]
@@ -166,9 +159,20 @@ async def bootstrap_status(db: Session = Depends(get_db)):
     return {"bootstrap_required": db.query(User).count() == 0}
 
 
+@app.get("/api/auth/invite-status")
+async def invite_status(token: str = "", db: Session = Depends(get_db)):
+    invite = inspect_invite(db, token.strip())
+    if not invite:
+        return {"valid": False, "role": None, "expires_at": None}
+    return {"valid": True, "role": invite.role, "expires_at": invite.expires_at.isoformat()}
+
+
 @app.post("/api/auth/login")
 async def login(payload: LoginPayload, request: Request, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username.strip()).first()
+    username = payload.username.strip()
+    if not username or not payload.password:
+        raise HTTPException(status_code=400, detail="Введите логин и пароль")
+    user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
     valid, upgraded = verify_password(payload.password, user.password_hash)
@@ -218,7 +222,7 @@ async def register(payload: RegisterPayload, request: Request, db: Session = Dep
     else:
         invite = consume_invite(db, (payload.invite_code or "").strip())
         if not invite:
-            raise HTTPException(status_code=403, detail="Приглашение недействительно, использовано или истекло")
+            raise HTTPException(status_code=403, detail="Ссылка приглашения недействительна, уже использована или истекла")
         role = invite.role
 
     try:
@@ -279,25 +283,39 @@ ALLOWED_PROCTOR_EVENTS = {
     "network_online",
     "camera_ended",
     "microphone_ended",
+    "vision_ready",
+    "vision_unavailable",
+    "face_missing",
+    "face_returned",
+    "multiple_faces",
+    "single_face_returned",
+    "head_away",
+    "head_returned",
+    "gaze_away",
+    "gaze_returned",
 }
 
 
 def _clean_proctor_metadata(data: dict[str, Any]) -> dict[str, Any]:
-    """Whitelist non-content metadata. Never accept clipboard text or keystrokes."""
+    """Whitelist non-content metadata. Images, clipboard text and keys are rejected."""
     clean: dict[str, Any] = {}
-    for key in ("duration_ms", "question_index", "answer_recording", "visibility_state"):
+    numeric = {"duration_ms", "question_index", "face_count", "sample_fps"}
+    booleans = {"answer_recording"}
+    strings = {"visibility_state", "reason", "direction", "delegate"}
+    for key in numeric | booleans | strings:
         if key not in data:
             continue
         value = data[key]
-        if key in {"duration_ms", "question_index"}:
+        if key in numeric:
             try:
-                clean[key] = max(0, min(int(value), 3_600_000))
+                ceiling = 3_600_000 if key == "duration_ms" else 100
+                clean[key] = max(0, min(int(value), ceiling))
             except (TypeError, ValueError):
                 continue
-        elif key == "answer_recording":
+        elif key in booleans:
             clean[key] = bool(value)
-        elif key == "visibility_state":
-            clean[key] = str(value)[:30]
+        else:
+            clean[key] = str(value)[:80]
     return clean
 
 
@@ -307,8 +325,6 @@ async def save_proctor_events(session_token: str, payload: ProctorBatchPayload, 
     if not session:
         raise HTTPException(status_code=404, detail="Интервью не найдено")
     if not session.started_at or session.final_report:
-        # The client can race with /start or /complete; silently ignore rather than
-        # break the interview for a non-critical telemetry feature.
         return {"accepted": 0}
 
     accepted = 0
@@ -329,6 +345,14 @@ async def save_proctor_events(session_token: str, payload: ProctorBatchPayload, 
     return {"accepted": accepted}
 
 
+def _duration_for(events: list[ProctorEvent], event_type: str) -> int:
+    return sum(
+        int((event.metadata_json or {}).get("duration_ms") or 0)
+        for event in events
+        if event.event_type == event_type
+    )
+
+
 def _proctor_summary(session_id: int, db: Session) -> dict[str, Any]:
     events = (
         db.query(ProctorEvent)
@@ -337,28 +361,29 @@ def _proctor_summary(session_id: int, db: Session) -> dict[str, Any]:
         .all()
     )
     counts = Counter(event.event_type for event in events)
-    hidden_ms = sum(
-        int((event.metadata_json or {}).get("duration_ms") or 0)
-        for event in events
-        if event.event_type == "tab_visible"
-    )
-    blur_ms = sum(
-        int((event.metadata_json or {}).get("duration_ms") or 0)
-        for event in events
-        if event.event_type == "window_focus"
-    )
+    vision_available = counts["vision_ready"] > 0 and counts["vision_unavailable"] == 0
     return {
         "total_events": len(events),
         "tab_switches": counts["tab_hidden"],
-        "tab_hidden_duration_ms": hidden_ms,
+        "tab_hidden_duration_ms": _duration_for(events, "tab_visible"),
         "window_blurs": counts["window_blur"],
-        "window_blur_duration_ms": blur_ms,
+        "window_blur_duration_ms": _duration_for(events, "window_focus"),
         "clipboard_pastes": counts["clipboard_paste"],
         "clipboard_copies": counts["clipboard_copy"],
         "fullscreen_exits": counts["fullscreen_exit"],
         "network_interruptions": counts["network_offline"],
         "media_interruptions": counts["camera_ended"] + counts["microphone_ended"],
-        "disclaimer": "Сигналы прокторинга не являются доказательством нарушения и не влияют на технический score.",
+        "vision_available": vision_available,
+        "vision_unavailable": counts["vision_unavailable"],
+        "face_missing_episodes": counts["face_missing"],
+        "face_missing_duration_ms": _duration_for(events, "face_returned"),
+        "multiple_faces_episodes": counts["multiple_faces"],
+        "multiple_faces_duration_ms": _duration_for(events, "single_face_returned"),
+        "head_away_episodes": counts["head_away"],
+        "head_away_duration_ms": _duration_for(events, "head_returned"),
+        "gaze_away_episodes": counts["gaze_away"],
+        "gaze_away_duration_ms": _duration_for(events, "gaze_returned"),
+        "disclaimer": "Прокторинг — вспомогательные сигналы для ручной проверки. Они не доказывают нарушение и не влияют на технический score.",
         "events": [
             {
                 "type": event.event_type,
@@ -425,14 +450,15 @@ async def candidate_interview(session_token: str, db: Session = Depends(get_db))
     source = (BASE_DIR / "templates" / "interview.html").read_text(encoding="utf-8")
     notice = """
     <div id="proctorNotice" style="margin:14px 0 0;padding:13px 14px;border:1px solid #e5e1ff;background:#faf9ff;border-radius:14px;font-size:12px;line-height:1.55;color:#5f6072">
-      <b style="color:#3e3f4c">Во время интервью включён базовый прокторинг.</b>
-      Мы фиксируем переключение/скрытие вкладки, потерю фокуса окна, clipboard actions, выход из полноэкранного режима и технические разрывы камеры/сети. Содержимое буфера обмена и нажатия клавиш не записываются. Эти сигналы видит человек и они не входят в технический score.
+      <b style="color:#3e3f4c">Во время интервью включён прокторинг.</b>
+      Мы фиксируем уход со вкладки, clipboard actions, разрывы камеры/сети и локально анализируем видеопоток через MediaPipe: наличие лица, второе лицо, длительный поворот головы и длительный взгляд в сторону. Кадры и face landmarks на сервер не отправляются. Эти сигналы не входят в технический score.
     </div>
     """
     source = source.replace("</div></div></section>\n<section id=\"device\"", notice + "</div></div></section>\n<section id=\"device\"", 1)
     injection = (
         f"<script>window.__INTERVIEW_TOKEN__={json.dumps(session_token)};</script>"
         '<script src="/static/proctor.js"></script>'
+        '<script type="module" src="/static/mediapipe_proctor.js"></script>'
     )
     source = source.replace("</body>", injection + "</body>", 1)
     return HTMLResponse(
