@@ -3,265 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Результаты интервью</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
-        .header { background: white; padding: 1rem 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .header h1 { color: #333; font-size: 1.5rem; }
-        
-        .container { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
-        
-        .card { background: white; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .card h2 { color: #333; margin-bottom: 1rem; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem; }
-        
-        .score-circle { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: bold; color: white; margin: 1rem auto; }
-        .score-high { background: #27ae60; }
-        .score-medium { background: #f39c12; }
-        .score-low { background: #e74c3c; }
-        
-        .recommendation { text-align: center; padding: 1rem; border-radius: 5px; margin: 1rem 0; font-size: 1.25rem; font-weight: bold; }
-        .rec-yes { background: #d4edda; color: #155724; }
-        .rec-maybe { background: #fff3cd; color: #856404; }
-        .rec-no { background: #f8d7da; color: #721c24; }
-        
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
-        .info-item { background: #f8f9fa; padding: 1rem; border-radius: 5px; }
-        .info-item label { color: #666; font-size: 0.875rem; display: block; margin-bottom: 0.25rem; }
-        .info-item value { color: #333; font-weight: 600; font-size: 1.1rem; }
-        
-        .section-list { list-style: none; }
-        .section-list li { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
-        .section-list li:last-child { border-bottom: none; }
-        .section-list li::before { content: "• "; color: #667eea; font-weight: bold; }
-        
-        .answer-card { background: #f8f9fa; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-        .answer-card h4 { color: #333; margin-bottom: 0.5rem; }
-        .answer-card .question { color: #666; font-style: italic; margin-bottom: 0.5rem; }
-        .answer-card .transcript { background: white; padding: 0.75rem; border-radius: 5px; margin: 0.5rem 0; white-space: pre-wrap; }
-        .answer-card .score-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.875rem; font-weight: bold; }
-        .score-badge-high { background: #d4edda; color: #155724; }
-        .score-badge-medium { background: #fff3cd; color: #856404; }
-        .score-badge-low { background: #f8d7da; color: #721c24; }
-        
-        .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 5px; cursor: pointer; font-size: 1rem; text-decoration: none; display: inline-block; }
-        .btn-primary { background: #667eea; color: white; }
-        .btn-secondary { background: #95a5a6; color: white; }
-        
-        .video-placeholder { background: #000; aspect-ratio: 16/9; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: white; }
-    </style>
+    <title>Результат интервью — Talent Interview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>body{font-family:Inter,sans-serif;background:#f6f7fb}.card{background:white;border:1px solid #e8e9ef;border-radius:20px}.tag{font-size:11px;font-weight:700;padding:5px 8px;border-radius:999px;background:#f0efff;color:#6254dd}.answer{border:1px solid #ececf2;border-radius:18px}.pre{white-space:pre-wrap}</style>
 </head>
-<body>
-    <div class="header">
-        <h1>📊 Результаты технического интервью</h1>
-    </div>
-    
-    <div class="container">
-        <!-- Общая информация -->
-        <div class="card">
-            <h2>Общая информация</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <label>Кандидат</label>
-                    <value id="candidateName">-</value>
-                </div>
-                <div class="info-item">
-                    <label>Вакансия</label>
-                    <value id="vacancyTitle">-</value>
-                </div>
-                <div class="info-item">
-                    <label>Дата интервью</label>
-                    <value id="interviewDate">-</value>
-                </div>
+<body class="min-h-screen text-gray-900">
+<header class="h-20 bg-white border-b border-gray-200 flex items-center px-5 lg:px-8 sticky top-0 z-20">
+    <a href="/dashboard" class="text-sm font-bold text-indigo-600">← Назад в HR workspace</a>
+    <div class="ml-5 pl-5 border-l border-gray-200"><div class="font-extrabold">Результат технического интервью</div><div id="headerCandidate" class="text-xs text-gray-400 mt-1">Загрузка…</div></div>
+</header>
+<main class="max-w-6xl mx-auto p-5 lg:p-8 space-y-6">
+    <section id="loading" class="card p-10 text-center text-gray-400">Загружаем результат интервью…</section>
+    <div id="content" class="hidden space-y-6">
+        <section class="card p-6 lg:p-8">
+            <div class="grid lg:grid-cols-[1fr_auto] gap-6 items-start">
+                <div><div id="vacancy" class="text-sm font-bold text-indigo-600"></div><h1 id="candidate" class="text-3xl font-extrabold tracking-tight mt-2"></h1><p id="summary" class="text-gray-600 leading-7 mt-4 max-w-3xl"></p></div>
+                <div class="grid grid-cols-2 gap-3 min-w-[260px]"><div class="bg-gray-50 rounded-2xl p-4"><div class="text-xs text-gray-400">Оценка</div><div id="score" class="text-3xl font-extrabold mt-1"></div></div><div class="bg-gray-50 rounded-2xl p-4"><div class="text-xs text-gray-400">Рекомендация</div><div id="recommendation" class="text-sm font-bold mt-2"></div></div></div>
             </div>
-            
-            <div id="scoreCircle" class="score-circle">-</div>
-            <div id="recommendation" class="recommendation">-</div>
-            <p id="summary" style="text-align: center; color: #666; line-height: 1.6;"></p>
-        </div>
-        
-        <!-- Детальный анализ -->
-        <div class="card">
-            <h2>📈 Детальный анализ</h2>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                <div>
-                    <h3 style="color: #27ae60; margin-bottom: 0.5rem;">💪 Сильные стороны</h3>
-                    <ul id="strengthsList" class="section-list"></ul>
-                </div>
-                <div>
-                    <h3 style="color: #e74c3c; margin-bottom: 0.5rem;">⚠️ Зоны роста</h3>
-                    <ul id="weaknessesList" class="section-list"></ul>
-                </div>
-            </div>
-            
-            <div style="margin-top: 1rem;">
-                <h3 style="color: #667eea; margin-bottom: 0.5rem;">🎯 Выявленные навыки</h3>
-                <ul id="skillsList" class="section-list"></ul>
-            </div>
-            
-            <div style="margin-top: 1rem;">
-                <h3 style="color: #f39c12; margin-bottom: 0.5rem;">❓ Вопросы для дополнительной проверки</h3>
-                <ul id="areasCheckList" class="section-list"></ul>
-            </div>
-            
-            <div style="margin-top: 1rem;">
-                <h3 style="color: #95a5a6; margin-bottom: 0.5rem;">⚡ Потенциальные риски</h3>
-                <ul id="risksList" class="section-list"></ul>
-            </div>
-        </div>
-        
-        <!-- Ответы по вопросам -->
-        <div class="card">
-            <h2>📝 Ответы на вопросы</h2>
-            <div id="answersList"></div>
-        </div>
-        
-        <div style="text-align: center; margin-top: 2rem;">
-            <a href="/dashboard" class="btn btn-secondary">← Вернуться в дашборд</a>
-        </div>
-    </div>
+        </section>
 
-    <script>
-        const sessionId = window.location.pathname.split('/').pop();
-        
-        async function loadReport() {
-            try {
-                // Для MVP используем заглушку данных
-                // В реальности: const response = await fetch(`/api/reports/${sessionId}`);
-                
-                const mockData = {
-                    candidate_name: "Иван Петров",
-                    vacancy_title: "Python Backend Developer",
-                    generated_at: new Date().toISOString(),
-                    overall_score: 7.5,
-                    recommendation: "требуется дополнительная проверка",
-                    summary: "Кандидат продемонстрировал хорошие теоретические знания Python и фреймворков. Опыт работы с высоконагруженными системами требует дополнительной проверки.",
-                    strengths: [
-                        "Глубокое понимание архитектурных принципов REST API",
-                        "Опыт работы с Django и FastAPI",
-                        "Знание принципов контейнеризации и CI/CD",
-                        "Умение писать тестируемый код"
-                    ],
-                    weaknesses: [
-                        "Недостаточно примеров оптимизации производительности",
-                        "Слабое знание методов кэширования на уровне БД",
-                        "Мало опыта с микросервисной архитектурой"
-                    ],
-                    detected_skills: ["Python", "Django", "FastAPI", "PostgreSQL", "Docker", "Git", "REST API", "Unit Testing"],
-                    areas_to_check: [
-                        "Опыт работы с высоконагруженными системами (10k+ RPS)",
-                        "Практика оптимизации сложных SQL-запросов",
-                        "Знание паттернов микросервисного взаимодействия"
-                    ],
-                    risk_factors: [
-                        "Возможно отсутствие опыта управления командой",
-                        "Неясен опыт работы в Agile-командах"
-                    ],
-                    answers: [
-                        {
-                            question: "Расскажите про CI/CD-пайплайн для Python-сервиса в контейнерах",
-                            transcript: "Я настраивал пайплайн в GitLab CI. Сначала запускались линтеры (flake8, black), потом unit-тесты через pytest. Если все тесты проходили, собирался Docker-образ с multi-stage build для минимизации размера. Образ пушился в registry, потом через kubectl deploy обновлялся деплоймент в Kubernetes. Для отката использовали предыдущие стабильные теги образов.",
-                            score: 8,
-                            analysis: {
-                                strengths: ["Полное описание этапов пайплайна", "Упоминание multi-stage build", "Понимание механизма отката"],
-                                weaknesses: ["Не упомянуто управление секретами"]
-                            }
-                        },
-                        {
-                            question: "Как вы оптимизируете медленные SQL-запросы?",
-                            transcript: "Сначала смотрю на explain analyze, проверяю индексы. Если нужно, добавляю составные индексы. Еще можно денормализовать данные или использовать кэширование через Redis.",
-                            score: 7,
-                            analysis: {
-                                strengths: ["Знание EXPLAIN ANALYZE", "Понимание индексации"],
-                                weaknesses: ["Не хватает глубины в оптимизации сложных запросов"]
-                            }
-                        }
-                    ]
-                };
-                
-                renderReport(mockData);
-            } catch (err) {
-                console.error('Ошибка загрузки отчета:', err);
-            }
-        }
-        
-        function renderReport(data) {
-            document.getElementById('candidateName').textContent = data.candidate_name;
-            document.getElementById('vacancyTitle').textContent = data.vacancy_title;
-            document.getElementById('interviewDate').textContent = new Date(data.generated_at).toLocaleDateString('ru-RU');
-            
-            // Score circle
-            const scoreCircle = document.getElementById('scoreCircle');
-            scoreCircle.textContent = data.overall_score.toFixed(1);
-            scoreCircle.className = 'score-circle ' + 
-                (data.overall_score >= 7.5 ? 'score-high' : 
-                 data.overall_score >= 5 ? 'score-medium' : 'score-low');
-            
-            // Recommendation
-            const recEl = document.getElementById('recommendation');
-            recEl.textContent = getRecommendationText(data.recommendation);
-            recEl.className = 'recommendation ' + 
-                (data.recommendation === 'подходит' ? 'rec-yes' : 
-                 data.recommendation === 'не подходит' ? 'rec-no' : 'rec-maybe');
-            
-            document.getElementById('summary').textContent = data.summary;
-            
-            // Lists
-            renderList('strengthsList', data.strengths);
-            renderList('weaknessesList', data.weaknesses);
-            renderList('skillsList', data.detected_skills);
-            renderList('areasCheckList', data.areas_to_check);
-            renderList('risksList', data.risk_factors);
-            
-            // Answers
-            const answersContainer = document.getElementById('answersList');
-            answersContainer.innerHTML = data.answers.map((ans, i) => `
-                <div class="answer-card">
-                    <h4>Вопрос #${i + 1}</h4>
-                    <p class="question">${ans.question}</p>
-                    <span class="score-badge ${getScoreBadgeClass(ans.score)}">Оценка: ${ans.score}/10</span>
-                    <div class="transcript">${ans.transcript}</div>
-                    ${ans.analysis ? `
-                        <div style="margin-top: 0.5rem;">
-                            <strong style="color: #27ae60;">+</strong> 
-                            ${(ans.analysis.strengths || []).join(', ')}
-                        </div>
-                        <div>
-                            <strong style="color: #e74c3c;">-</strong> 
-                            ${(ans.analysis.weaknesses || []).join(', ')}
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
-        }
-        
-        function renderList(id, items) {
-            const el = document.getElementById(id);
-            if (!items || items.length === 0) {
-                el.innerHTML = '<li style="color: #999;">Нет данных</li>';
-                return;
-            }
-            el.innerHTML = items.map(item => `<li>${item}</li>`).join('');
-        }
-        
-        function getRecommendationText(rec) {
-            const texts = {
-                'подходит': '✅ Рекомендуется к найму',
-                'не подходит': '❌ Не рекомендуется',
-                'требуется дополнительная проверка': '⏳ Требуется дополнительная проверка'
-            };
-            return texts[rec] || rec;
-        }
-        
-        function getScoreBadgeClass(score) {
-            if (score >= 7.5) return 'score-badge-high';
-            if (score >= 5) return 'score-badge-medium';
-            return 'score-badge-low';
-        }
-        
-        // Загрузка
-        loadReport();
-    </script>
+        <section class="grid lg:grid-cols-2 gap-6">
+            <div class="card p-6"><h2 class="font-extrabold text-lg">Сильные стороны</h2><ul id="strengths" class="mt-4 space-y-3 text-sm text-gray-600"></ul></div>
+            <div class="card p-6"><h2 class="font-extrabold text-lg">Риски и зоны роста</h2><ul id="weaknesses" class="mt-4 space-y-3 text-sm text-gray-600"></ul></div>
+        </section>
+
+        <section class="card p-6">
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4"><div><h2 class="font-extrabold text-lg">Навыки и следующий этап</h2><p class="text-sm text-gray-500 mt-1">Что подтверждено и что стоит уточнить дальше.</p></div><div id="skills" class="flex flex-wrap gap-2"></div></div>
+            <div class="grid md:grid-cols-2 gap-5 mt-5"><div class="bg-gray-50 rounded-2xl p-4"><div class="font-bold text-sm">Дополнительно проверить</div><ul id="areas" class="mt-3 space-y-2 text-sm text-gray-600"></ul></div><div class="bg-gray-50 rounded-2xl p-4"><div class="font-bold text-sm">Риски</div><ul id="risks" class="mt-3 space-y-2 text-sm text-gray-600"></ul></div></div>
+        </section>
+
+        <section id="videoSection" class="card p-6 hidden"><div class="flex justify-between items-center mb-4"><div><h2 class="font-extrabold text-lg">Полная видеозапись</h2><p class="text-sm text-gray-500 mt-1">Непрерывная запись интервью кандидата.</p></div></div><video id="fullVideo" controls class="w-full rounded-2xl bg-black max-h-[600px]"></video></section>
+
+        <section class="card p-6"><div><h2 class="font-extrabold text-lg">Ответы по вопросам</h2><p class="text-sm text-gray-500 mt-1">Транскрипция, оценка и анализ каждого ответа.</p></div><div id="answers" class="mt-5 space-y-4"></div></section>
+    </div>
+</main>
+<script>
+const sessionId=location.pathname.split('/').pop();
+const auth=localStorage.getItem('auth');
+if(!auth) location.href='/login';
+function esc(v=''){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')}
+function list(id,items){document.getElementById(id).innerHTML=(items||[]).length?(items||[]).map(x=>`<li class="flex gap-2"><span class="text-indigo-500">•</span><span>${esc(x)}</span></li>`).join(''):'<li class="text-gray-400">Нет данных</li>'}
+async function load(){
+ try{
+   const r=await fetch(`/api/reports/${sessionId}`,{headers:{Authorization:'Basic '+auth}}); if(!r.ok){let m='Не удалось загрузить отчёт';try{const d=await r.json();m=d.detail||m}catch(_){}throw new Error(m)}
+   const d=await r.json(); render(d);
+ }catch(e){document.getElementById('loading').textContent=e.message;document.getElementById('loading').classList.add('text-red-600')}
+}
+function render(d){
+ document.getElementById('loading').classList.add('hidden');document.getElementById('content').classList.remove('hidden');
+ document.getElementById('headerCandidate').textContent=`${d.candidate_name} · ${d.vacancy_title}`;document.getElementById('vacancy').textContent=d.vacancy_title;document.getElementById('candidate').textContent=d.candidate_name;document.getElementById('summary').textContent=d.summary||'Итоговое резюме не сформировано.';
+ document.getElementById('score').textContent=d.overall_score!=null?`${Number(d.overall_score).toFixed(1)}/10`:'—';document.getElementById('recommendation').textContent=d.recommendation||'—';
+ list('strengths',d.strengths);list('weaknesses',d.weaknesses);list('areas',d.areas_to_check);list('risks',d.risk_factors);
+ document.getElementById('skills').innerHTML=(d.detected_skills||[]).map(x=>`<span class="tag">${esc(x)}</span>`).join('')||'<span class="text-sm text-gray-400">Нет данных</span>';
+ if(d.full_video_path){document.getElementById('videoSection').classList.remove('hidden');document.getElementById('fullVideo').src=d.full_video_path}
+ document.getElementById('answers').innerHTML=(d.answers||[]).map((a,i)=>`<div class="answer p-5"><div class="flex flex-col md:flex-row md:items-start gap-4 justify-between"><div class="min-w-0"><div class="text-xs font-bold text-indigo-600">ВОПРОС ${i+1}</div><div class="font-bold mt-1 leading-6">${esc(a.question)}</div></div><div class="shrink-0 px-3 py-2 rounded-xl bg-gray-50 font-bold text-sm">${a.score!=null?Number(a.score).toFixed(1)+'/10':'—'}</div></div><div class="mt-4 bg-gray-50 rounded-xl p-4"><div class="text-xs font-bold text-gray-400 mb-2">ТРАНСКРИПЦИЯ</div><div class="pre text-sm text-gray-700 leading-6">${esc(a.transcript||'')}</div>${a.transcript_raw&&a.transcript_raw!==a.transcript?`<details class="mt-3"><summary class="text-xs font-semibold text-gray-400 cursor-pointer">Показать исходную ASR-транскрипцию</summary><div class="pre mt-2 text-xs text-gray-500">${esc(a.transcript_raw)}</div></details>`:''}</div>${a.analysis?`<div class="grid md:grid-cols-2 gap-3 mt-4"><div class="bg-green-50 rounded-xl p-3"><div class="text-xs font-bold text-green-700">Сильные стороны</div><div class="text-xs text-green-900 mt-2 leading-5">${esc((a.analysis.strengths||[]).join(' · ')||'—')}</div></div><div class="bg-amber-50 rounded-xl p-3"><div class="text-xs font-bold text-amber-700">Что улучшить</div><div class="text-xs text-amber-900 mt-2 leading-5">${esc((a.analysis.weaknesses||[]).join(' · ')||'—')}</div></div></div>`:''}${a.audio_path?`<audio controls src="${a.audio_path}" class="w-full mt-4"></audio>`:''}</div>`).join('')||'<div class="text-sm text-gray-400">Ответы не найдены</div>';
+}
+load();
+</script>
 </body>
 </html>
