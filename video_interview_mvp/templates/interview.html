@@ -97,16 +97,28 @@
         <!-- Экран проверки оборудования -->
         <div id="deviceTestScreen" class="welcome-card hidden">
             <h2>🎥 Проверка камеры и микрофона</h2>
-            <p style="margin-bottom: 1rem;">Пожалуйста, подтвердите, что камера и микрофон работают корректно.</p>
+            <p style="margin-bottom: 1rem; color: #e74c3c; font-weight: bold;">⚠️ Пожалуйста, разрешите доступ в браузере и протестируйте оборудование!</p>
             
             <div style="margin: 1.5rem 0;">
                 <video id="testVideoPreview" autoplay muted playsinline style="width: 100%; max-width: 480px; border-radius: 8px; background: #000;"></video>
             </div>
             
-            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
-                <button id="testAudioBtn" class="btn btn-secondary" onclick="testAudio()">🎤 Тест микрофона</button>
-                <div id="audioIndicator" style="align-self: center; font-weight: bold; color: #27ae60; display: none;">🔊 Звук обнаружен!</div>
+            <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+                <p style="margin-bottom: 0.5rem; font-weight: bold;">📋 Инструкция по разрешению доступа:</p>
+                <ol style="text-align: left; color: #555; line-height: 1.6; padding-left: 1.5rem;">
+                    <li>Если вы видите всплывающее окно браузера с запросом доступа — нажмите <strong>"Разрешить"</strong> или <strong>"Allow"</strong></li>
+                    <li>Если окна нет — нажмите на <strong>🔒 Замок</strong> слева в адресной строке браузера</li>
+                    <li>Найдите пункты <strong>"Камера"</strong> и <strong>"Микрофон"</strong> и переключите их на <strong>"Разрешить"</strong></li>
+                    <li>После этого <strong>обновите страницу (F5)</strong> и попробуйте снова</li>
+                </ol>
             </div>
+            
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; align-items: center;">
+                <button id="testAudioBtn" class="btn btn-secondary" onclick="testAudio()">🎤 Нажмите для теста микрофона</button>
+                <div id="audioIndicator" style="align-self: center; font-weight: bold; color: #27ae60; display: none;">🔊 Звук обнаружен! Микрофон работает!</div>
+            </div>
+            
+            <div id="audioTestStatus" style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">Говорите в микрофон после нажатия кнопки выше</div>
             
             <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
                 <button class="btn btn-secondary" onclick="backToWelcome()">← Назад</button>
@@ -284,7 +296,11 @@
         
         // Тест микрофона
         function testAudio() {
-            if (!testStream) return;
+            if (!testStream) {
+                document.getElementById('audioTestStatus').textContent = '❌ Сначала разрешите доступ к микрофону!';
+                document.getElementById('audioTestStatus').style.color = '#e74c3c';
+                return;
+            }
             
             const audioContext = new AudioContext();
             const analyser = audioContext.createAnalyser();
@@ -299,6 +315,12 @@
             scriptProcessor.connect(audioContext.destination);
             
             const audioIndicator = document.getElementById('audioIndicator');
+            const audioTestStatus = document.getElementById('audioTestStatus');
+            
+            audioTestStatus.textContent = '🎤 Говорите сейчас...';
+            audioTestStatus.style.color = '#667eea';
+            
+            let soundDetected = false;
             
             scriptProcessor.onaudioprocess = function() {
                 const array = new Uint8Array(analyser.frequencyBinCount);
@@ -306,8 +328,13 @@
                 const values = array.reduce((a, b) => a + b, 0);
                 const average = values / array.length;
                 
-                if (average > 10) {
+                if (average > 10 && !soundDetected) {
+                    soundDetected = true;
                     audioIndicator.style.display = 'block';
+                    audioTestStatus.textContent = '✅ Микрофон работает! Теперь нажмите кнопку ниже.';
+                    audioTestStatus.style.color = '#27ae60';
+                    // Автоматически показываем кнопку подтверждения
+                    document.getElementById('confirmDevicesBtn').classList.remove('hidden');
                 }
             };
             
