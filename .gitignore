@@ -1,1 +1,45 @@
-Nothing needs to be added to .gitignore since only a template file (.html) was modified and no build artifacts, dependencies, or temporary files were detected in the changes.
+```
+# Logs
+*.log
+
+# Database
+video_interview.db
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
+
+# Build artifacts
+dist/
+build/
+*.egg
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+```
