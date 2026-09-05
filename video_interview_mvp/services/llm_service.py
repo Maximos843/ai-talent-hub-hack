@@ -41,7 +41,7 @@ class LLMService:
             "temperature": temperature,
             "max_tokens": 3600,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self.headers,
