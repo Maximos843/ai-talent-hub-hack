@@ -140,6 +140,18 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     }
 
 
+def _compat_points(items: list, field: str) -> list[str]:
+    result = []
+    for item in items or []:
+        if isinstance(item, dict):
+            value = item.get(field)
+        else:
+            value = item
+        if isinstance(value, str) and value.strip():
+            result.append(value.strip())
+    return result
+
+
 @router.get("/api/reports/{session_id}", response_class=JSONResponse)
 async def get_report(
     session_id: int,
@@ -159,17 +171,30 @@ async def get_report(
     strengths = report.strengths if isinstance(report.strengths, list) else []
     issues = report.weaknesses if isinstance(report.weaknesses, list) else []
     uncovered = report.areas_to_check if isinstance(report.areas_to_check, list) else []
+    coverage = details.get("vacancy_coverage", {"must_have": [], "nice_to_have": []})
+    confidence = details.get("confidence_0_1", 0.0)
     final_evaluation = {
         "recommendation": report.recommendation,
         "overall_score_0_10": report.overall_score,
-        "confidence_0_1": details.get("confidence_0_1", 0.0),
+        "confidence_0_1": confidence,
         "summary": report.summary or "",
         "competencies": competencies,
-        "vacancy_coverage": details.get("vacancy_coverage", {"must_have": [], "nice_to_have": []}),
+        "vacancy_coverage": coverage,
         "strengths": strengths,
         "issues": issues,
         "uncovered_vacancy_topics": uncovered,
     }
+
+    # Keep the old top-level shape string-based so the existing report.html and
+    # any current consumers do not break. Rich v2 data lives in final_evaluation.
+    compat_strengths = _compat_points(strengths, "point")
+    compat_issues = _compat_points(issues, "point")
+    compat_skills = _compat_points(competencies, "name")
+    compat_risks = [
+        item.get("point")
+        for item in issues
+        if isinstance(item, dict) and item.get("type") in {"риск", "противоречие"} and item.get("point")
+    ]
     return {
         "id": report.id,
         "session_id": report.session_id,
@@ -179,11 +204,13 @@ async def get_report(
         "overall_score": report.overall_score,
         "recommendation": report.recommendation,
         "summary": report.summary,
-        "strengths": strengths,
-        "weaknesses": issues,
-        "detected_skills": competencies,
+        "strengths": compat_strengths,
+        "weaknesses": compat_issues,
+        "detected_skills": compat_skills,
         "areas_to_check": uncovered,
-        "risk_factors": details,
+        "risk_factors": compat_risks,
+        "score_confidence": confidence,
+        "vacancy_coverage": coverage,
         "final_evaluation": final_evaluation,
         "full_video_path": legacy_main._web_upload_path(str(full_video)) if full_video else None,
         "full_video_media": full_video_meta,
