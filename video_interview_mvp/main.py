@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import database
@@ -36,7 +36,7 @@ QUESTIONS_FILE = BASE_DIR / "data" / "questions.json"
 
 database.init_db()
 
-app = FastAPI(title="Video Interview MVP", version="1.3.0")
+app = FastAPI(title="Video Interview MVP", version="1.3.1")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -80,9 +80,9 @@ class CandidateQuestionCreate(BaseModel):
     question_text: str
     competency: Optional[str] = "custom"
     reference_answer: Optional[str] = ""
-    must_have: List[str] = []
-    nice_to_have: List[str] = []
-    red_flags: List[str] = []
+    must_have: List[str] = Field(default_factory=list)
+    nice_to_have: List[str] = Field(default_factory=list)
+    red_flags: List[str] = Field(default_factory=list)
 
 
 class CandidateQuestionUpdate(BaseModel):
@@ -137,6 +137,17 @@ def _load_question_bank() -> List[dict]:
         return json.load(file)
 
 
+def _latest_review(session: InterviewSession, role: str) -> Optional[ReviewDecision]:
+    items = [item for item in (session.review_decisions or []) if item.reviewer_role == role]
+    return items[-1] if items else None
+
+
+def _manager_can_view(session: InterviewSession) -> bool:
+    hr_review = _latest_review(session, "hr")
+    manager_review = _latest_review(session, "hiring_manager")
+    return bool(manager_review or (hr_review and hr_review.decision == "approve"))
+
+
 def _get_accessible_vacancy(vacancy_id: int, current_user: User, db: Session) -> Vacancy:
     query = db.query(Vacancy).filter(Vacancy.id == vacancy_id)
     if current_user.role == "hr":
@@ -154,6 +165,8 @@ def _get_accessible_session(session_id: int, current_user: User, db: Session) ->
     session = query.first()
     if not session:
         raise HTTPException(status_code=404, detail="Кандидат не найден")
+    if current_user.role == "hiring_manager" and not _manager_can_view(session):
+        raise HTTPException(status_code=404, detail="Кандидат ещё не передан нанимающему менеджеру")
     return session
 
 
@@ -162,18 +175,16 @@ def _question_counts(vacancy: Vacancy) -> tuple[int, int]:
     return len(questions), sum(1 for item in questions if item.is_approved)
 
 
-def _latest_review(session: InterviewSession, role: str) -> Optional[ReviewDecision]:
-    items = [item for item in (session.review_decisions or []) if item.reviewer_role == role]
-    return items[-1] if items else None
-
-
 def _review_payload(item: Optional[ReviewDecision]) -> Optional[dict]:
     if not item:
         return None
+    reviewer_name = ""
+    if item.reviewer:
+        reviewer_name = item.reviewer.full_name or item.reviewer.username
     return {
         "decision": item.decision,
         "comment": item.comment or "",
-        "reviewer_name": item.reviewer.full_name or item.reviewer.username if item.reviewer else "",
+        "reviewer_name": reviewer_name,
         "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
     }
 
@@ -308,7 +319,6 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Необходимо ввести пригласительный код")
     if user_data.invite_code not in INVITE_CODES[user_data.role]:
         raise HTTPException(status_code=403, detail="Неверный пригласительный код")
-
     user = User(
         username=user_data.username,
         password_hash=hash_password(user_data.password),
@@ -327,7 +337,6 @@ async def get_vacancies(current_user: User = Depends(get_current_user), db: Sess
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
     vacancies = query.order_by(Vacancy.created_at.desc()).all()
-
     result = []
     for vacancy in vacancies:
         questions_count, approved_count = _question_counts(vacancy)
@@ -357,7 +366,6 @@ async def create_vacancy(
 ):
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR-менеджеры могут создавать вакансии")
-
     title = vacancy_data.title.strip()
     source_text = (vacancy_data.vacancy_text or "").strip()
     if not source_text:
@@ -393,7 +401,6 @@ async def create_vacancy(
     )
     if not suggested and bank:
         suggested = bank[: min(MAX_QUESTIONS_PER_INTERVIEW, len(bank))]
-
     for idx, item in enumerate(suggested):
         question = db.query(Question).filter(Question.question_text == item["question"]).first()
         if not question:
@@ -417,7 +424,6 @@ async def create_vacancy(
             )
         )
     db.commit()
-
     return {
         "id": vacancy.id,
         "title": vacancy.title,
@@ -503,7 +509,6 @@ async def approve_vacancy_questions(
     existing = {item.question_id for item in items}
     if any(qid not in existing for qid in requested):
         raise HTTPException(status_code=400, detail="В списке есть чужой вопрос")
-
     selected_order = {qid: idx for idx, qid in enumerate(requested)}
     rejected_index = len(requested)
     for item in items:
@@ -546,6 +551,8 @@ async def get_candidates(current_user: User = Depends(get_current_user), db: Ses
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
     sessions = query.order_by(InterviewSession.created_at.desc()).all()
+    if current_user.role == "hiring_manager":
+        sessions = [session for session in sessions if _manager_can_view(session)]
     return [_session_payload(session) for session in sessions]
 
 
@@ -568,7 +575,6 @@ async def create_interview_session(
     name = interview_data.candidate_name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Укажите имя кандидата")
-
     session = InterviewSession(
         vacancy_id=vacancy.id,
         candidate_name=name,
@@ -598,10 +604,6 @@ async def get_candidate_questions(
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR может менять вопросы кандидата")
     session = _get_accessible_session(session_id, current_user, db)
-    if session.started_at:
-        editable = False
-    else:
-        editable = True
     _copy_default_questions_to_session(session, db)
     questions = (
         db.query(InterviewQuestion)
@@ -613,7 +615,7 @@ async def get_candidate_questions(
         "session_id": session.id,
         "candidate_name": session.candidate_name,
         "vacancy_title": session.vacancy.title,
-        "editable": editable,
+        "editable": not bool(session.started_at),
         "questions": [_candidate_question_payload(q) for q in questions],
     }
 
@@ -673,7 +675,6 @@ async def update_candidate_question(
     )
     if not question:
         raise HTTPException(status_code=404, detail="Вопрос не найден")
-
     if payload.question_text is not None:
         text = payload.question_text.strip()
         if not text:
@@ -726,10 +727,7 @@ async def get_interview_session(session_token: str, db: Session = Depends(get_db
         "session_id": session.id,
         "candidate_name": session.candidate_name,
         "vacancy_title": session.vacancy.title,
-        "questions": [
-            {"session_question_id": q.id, "question": q.question_text}
-            for q in questions
-        ],
+        "questions": [{"session_question_id": q.id, "question": q.question_text} for q in questions],
         "time_limit": ANSWER_TIME_LIMIT_SECONDS,
     }
 
@@ -848,7 +846,6 @@ async def analyze_answer(answer_id: int, db: Session) -> None:
         must_have = q.must_have if q else []
         nice_to_have = q.nice_to_have if q else []
         red_flags = q.red_flags if q else []
-
     analysis = await llm_service.analyze_answer(
         question=question_text,
         reference_answer=reference_answer or "",
@@ -904,11 +901,9 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
     if not answers:
         raise HTTPException(status_code=400, detail="Нельзя завершить интервью без ответов")
-
     for answer in answers:
         if answer.score is None and (answer.transcript_corrected or answer.transcript_raw):
             await analyze_answer(answer.id, db)
-
     answers_data = [
         {
             "question": answer.question_text,
@@ -931,7 +926,6 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     if not final_report:
         final_report = FinalReport(session_id=session_id)
         db.add(final_report)
-
     final_report.overall_score = report_data.get("overall_score", 5.0)
     final_report.recommendation = report_data.get("recommendation", "требуется дополнительная проверка")
     final_report.summary = report_data.get("summary", "")
@@ -941,7 +935,6 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     final_report.areas_to_check = report_data.get("areas_to_check", [])
     final_report.risk_factors = report_data.get("risk_factors", [])
     final_report.generated_at = datetime.utcnow()
-
     session.status = "completed"
     session.completed_at = datetime.utcnow()
     db.commit()
@@ -961,6 +954,8 @@ async def hr_review(
     session = _get_accessible_session(session_id, current_user, db)
     if not session.final_report:
         raise HTTPException(status_code=400, detail="Сначала должно завершиться интервью и сформироваться отчёт")
+    if _latest_review(session, "hiring_manager"):
+        raise HTTPException(status_code=400, detail="Финальное решение менеджера уже принято и не может быть переопределено HR")
     if payload.decision not in {"approve", "reject", "needs_review"}:
         raise HTTPException(status_code=400, detail="Неизвестное решение")
     db.add(
@@ -974,6 +969,7 @@ async def hr_review(
     )
     session.status = "hr_approved" if payload.decision == "approve" else "hr_rejected" if payload.decision == "reject" else "completed"
     db.commit()
+    db.refresh(session)
     return {"message": "Решение HR сохранено", "workflow_state": _workflow_state(session)}
 
 
@@ -992,6 +988,8 @@ async def manager_review(
     hr_decision = _latest_review(session, "hr")
     if not hr_decision or hr_decision.decision != "approve":
         raise HTTPException(status_code=400, detail="Сначала HR должен одобрить кандидата")
+    if _latest_review(session, "hiring_manager"):
+        raise HTTPException(status_code=400, detail="Финальное решение уже принято")
     if payload.decision not in {"approve", "reject"}:
         raise HTTPException(status_code=400, detail="Менеджер должен выбрать финально: одобрить или отклонить")
     db.add(
@@ -1005,6 +1003,7 @@ async def manager_review(
     )
     session.status = "manager_approved" if payload.decision == "approve" else "manager_rejected"
     db.commit()
+    db.refresh(session)
     return {"message": "Финальное решение сохранено", "workflow_state": _workflow_state(session)}
 
 
@@ -1018,7 +1017,6 @@ async def get_report(
     report = session.final_report
     if not report:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
-
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
     full_video = None
     for extension in ("webm", "mp4"):
@@ -1026,7 +1024,6 @@ async def get_report(
         if candidate.exists():
             full_video = f"/uploads/{candidate.name}"
             break
-
     return {
         "id": report.id,
         "session_id": report.session_id,
