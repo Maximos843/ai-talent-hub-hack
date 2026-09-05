@@ -1,8 +1,9 @@
-"""Small authentication primitives for the hackathon MVP.
+"""Authentication primitives for the hackathon MVP.
 
-No JWT is needed here: random opaque session ids are easier to revoke and keep
-credentials out of browser storage. Only SHA-256 hashes of sessions/invites are
-stored in SQLite. Passwords use PBKDF2-HMAC-SHA256 from Python's stdlib.
+The browser receives only an opaque HttpOnly session id.  Passwords use
+PBKDF2-HMAC-SHA256 and invitation/session tokens are stored only as SHA-256
+hashes.  The helpers deliberately stay dependency-free so the auth layer is
+predictable inside the small FastAPI MVP.
 """
 from __future__ import annotations
 
@@ -29,9 +30,14 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def hash_password(password: str) -> str:
-    if len(password) < 8:
-        raise ValueError("Пароль должен содержать минимум 8 символов")
+def _encode_password(password: str) -> str:
+    """Encode a password without applying new-account policy.
+
+    This is intentionally separate from ``hash_password``.  Old hackathon
+    databases may contain plaintext passwords shorter than today's 8-character
+    policy.  A successful legacy login must still be able to migrate that
+    password to PBKDF2 instead of crashing with ValueError.
+    """
     salt = secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS)
     return "pbkdf2_sha256${}${}${}".format(
@@ -41,11 +47,18 @@ def hash_password(password: str) -> str:
     )
 
 
-def verify_password(password: str, stored: str) -> tuple[bool, Optional[str]]:
-    """Verify password and optionally return an upgraded hash.
+def hash_password(password: str) -> str:
+    if len(password) < 8:
+        raise ValueError("Пароль должен содержать минимум 8 символов")
+    return _encode_password(password)
 
-    Existing hackathon databases may contain legacy plaintext passwords. A valid
-    legacy login is upgraded transparently on first successful authentication.
+
+def verify_password(password: str, stored: str) -> tuple[bool, Optional[str]]:
+    """Verify a password and optionally return an upgraded hash.
+
+    Existing databases from the previous MVP stored passwords as plaintext.
+    They are upgraded transparently after the first successful login, including
+    old passwords shorter than the new-account minimum length.
     """
     if stored.startswith("pbkdf2_sha256$"):
         try:
@@ -58,9 +71,8 @@ def verify_password(password: str, stored: str) -> tuple[bool, Optional[str]]:
         except (ValueError, TypeError):
             return False, None
 
-    # Legacy migration path from the original MVP.
     if hmac.compare_digest(password, stored):
-        return True, hash_password(password)
+        return True, _encode_password(password)
     return False, None
 
 
@@ -93,7 +105,6 @@ def resolve_session(db: Session, token: Optional[str]) -> Optional[AuthSession]:
     )
     if not session or session.expires_at <= now:
         return None
-    # Avoid a write on every request; update roughly every five minutes.
     if not session.last_seen_at or (now - session.last_seen_at).total_seconds() > 300:
         session.last_seen_at = now
         db.commit()
@@ -127,9 +138,16 @@ def create_invite(db: Session, role: str, created_by_id: int) -> tuple[str, Work
     return token, invite
 
 
-def consume_invite(db: Session, token: str) -> Optional[WorkspaceInvite]:
+def inspect_invite(db: Session, token: str) -> Optional[WorkspaceInvite]:
+    """Return an active invite without consuming it."""
+    if not token:
+        return None
     now = datetime.utcnow()
     invite = db.query(WorkspaceInvite).filter(WorkspaceInvite.token_hash == _token_hash(token)).first()
     if not invite or invite.used_at or invite.expires_at <= now:
         return None
     return invite
+
+
+def consume_invite(db: Session, token: str) -> Optional[WorkspaceInvite]:
+    return inspect_invite(db, token)
