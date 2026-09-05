@@ -23,6 +23,16 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python -m compileall -q .
+      - name: Check canonical app startup
+        run: |
+          python - <<'PY'
+          import main
+          paths = {route.path for route in main.app.routes}
+          assert "/api/auth/login" in paths
+          assert "/api/auth/bootstrap-status" in paths
+          assert "/dashboard" in paths
+          print("main:app OK")
+          PY
       - run: python -m unittest discover -s tests -v
       - name: Check browser scripts syntax
         run: |
