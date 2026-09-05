@@ -18,6 +18,8 @@ import database
 from config import ANSWER_TIME_LIMIT_SECONDS, MAX_QUESTIONS_PER_INTERVIEW, UPLOAD_DIR
 from database import (
     Answer,
+    AnswerMedia,
+    CandidateLifecycle,
     FinalReport,
     InterviewQuestion,
     InterviewSession,
@@ -29,6 +31,7 @@ from database import (
     get_db,
 )
 from services import asr_service, llm_service
+from services.media_service import extract_video_clip, media_metadata, normalize_audio, normalize_video
 
 
 BASE_DIR = Path(__file__).parent
@@ -36,7 +39,7 @@ QUESTIONS_FILE = BASE_DIR / "data" / "questions.json"
 
 database.init_db()
 
-app = FastAPI(title="Video Interview MVP", version="1.3.1")
+app = FastAPI(title="Video Interview MVP", version="1.4.0")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -99,6 +102,11 @@ class CandidateQuestionUpdate(BaseModel):
 class ReviewPayload(BaseModel):
     decision: str
     comment: Optional[str] = ""
+
+
+class CandidateStatusUpdate(BaseModel):
+    status: str
+    note: Optional[str] = ""
 
 
 def hash_password(password: str) -> str:
@@ -205,15 +213,28 @@ def _workflow_state(session: InterviewSession) -> str:
     return "awaiting_hr"
 
 
+def _ensure_lifecycle(session: InterviewSession, db: Session) -> CandidateLifecycle:
+    if session.lifecycle:
+        return session.lifecycle
+    lifecycle = CandidateLifecycle(session_id=session.id, status="active", note="")
+    db.add(lifecycle)
+    db.commit()
+    db.refresh(session)
+    return session.lifecycle
+
+
 def _session_payload(session: InterviewSession) -> dict:
     report = session.final_report
     hr_review = _latest_review(session, "hr")
     manager_review = _latest_review(session, "hiring_manager")
+    lifecycle = session.lifecycle
     return {
         "id": session.id,
         "candidate_name": session.candidate_name,
         "status": session.status,
         "workflow_state": _workflow_state(session),
+        "lifecycle_status": lifecycle.status if lifecycle else "active",
+        "lifecycle_note": lifecycle.note if lifecycle else "",
         "vacancy_id": session.vacancy_id,
         "vacancy_title": session.vacancy.title if session.vacancy else "",
         "created_at": session.created_at.isoformat() if session.created_at else None,
@@ -279,6 +300,45 @@ def _candidate_question_payload(question: InterviewQuestion) -> dict:
         "is_custom": bool(question.is_custom),
         "source_session_question_id": question.source_session_question_id,
     }
+
+
+def _find_full_video(session_id: int) -> Optional[Path]:
+    candidates = sorted(
+        UPLOAD_DIR.glob(f"full_interview_{session_id}*"),
+        key=lambda path: ("normalized" not in path.stem, -(path.stat().st_mtime if path.exists() else 0)),
+    )
+    return next((path for path in candidates if path.is_file() and path.stat().st_size > 0), None)
+
+
+def _delete_candidate_media(session: InterviewSession) -> None:
+    files = set()
+    for answer in session.answers:
+        for raw_path in (answer.audio_path, answer.video_path):
+            if raw_path:
+                files.add(Path(raw_path))
+    files.update(UPLOAD_DIR.glob(f"full_interview_{session.id}*"))
+    files.update(UPLOAD_DIR.glob(f"answer_{session.id}_*"))
+    files.update(UPLOAD_DIR.glob(f"answer_clip_{session.id}_*"))
+    for path in files:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _build_answer_clips(session: InterviewSession, full_video: Path, db: Session) -> None:
+    for answer in session.answers:
+        media = answer.media
+        if not media or media.end_ms <= media.start_ms:
+            continue
+        target = UPLOAD_DIR / f"answer_clip_{session.id}_{answer.id}.webm"
+        clip_path, duration_ms = extract_video_clip(full_video, target, media.start_ms, media.end_ms)
+        if not clip_path:
+            continue
+        answer.video_path = str(clip_path)
+        media.video_duration_ms = duration_ms or max(0, media.end_ms - media.start_ms)
+        media.video_size_bytes = clip_path.stat().st_size
+    db.commit()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -415,14 +475,7 @@ async def create_vacancy(
             )
             db.add(question)
             db.flush()
-        db.add(
-            SessionQuestion(
-                vacancy_id=vacancy.id,
-                question_id=question.id,
-                order_index=idx,
-                is_approved=False,
-            )
-        )
+        db.add(SessionQuestion(vacancy_id=vacancy.id, question_id=question.id, order_index=idx, is_approved=False))
     db.commit()
     return {
         "id": vacancy.id,
@@ -450,18 +503,16 @@ async def get_vacancy_details(
     for item in session_questions:
         q = item.question
         if q:
-            questions.append(
-                {
-                    "session_question_id": item.id,
-                    "id": q.id,
-                    "question": q.question_text,
-                    "tags": q.tags or [],
-                    "competency": q.competency or "",
-                    "must_have": q.must_have or [],
-                    "nice_to_have": q.nice_to_have or [],
-                    "is_approved": bool(item.is_approved),
-                }
-            )
+            questions.append({
+                "session_question_id": item.id,
+                "id": q.id,
+                "question": q.question_text,
+                "tags": q.tags or [],
+                "competency": q.competency or "",
+                "must_have": q.must_have or [],
+                "nice_to_have": q.nice_to_have or [],
+                "is_approved": bool(item.is_approved),
+            })
     sessions = (
         db.query(InterviewSession)
         .filter(InterviewSession.vacancy_id == vacancy_id)
@@ -530,18 +581,16 @@ async def get_question_bank(current_user: User = Depends(get_current_user), db: 
     result = []
     for item in bank:
         db_question = by_text.get(item.get("question", ""))
-        result.append(
-            {
-                "bank_id": item.get("id"),
-                "database_id": db_question.id if db_question else None,
-                "question": item.get("question", ""),
-                "tags": item.get("tags", []),
-                "competency": item.get("competency", ""),
-                "must_have": item.get("must_have", []),
-                "nice_to_have": item.get("nice_to_have", []),
-                "usage_count": len(db_question.session_questions) if db_question else 0,
-            }
-        )
+        result.append({
+            "bank_id": item.get("id"),
+            "database_id": db_question.id if db_question else None,
+            "question": item.get("question", ""),
+            "tags": item.get("tags", []),
+            "competency": item.get("competency", ""),
+            "must_have": item.get("must_have", []),
+            "nice_to_have": item.get("nice_to_have", []),
+            "usage_count": len(db_question.session_questions) if db_question else 0,
+        })
     return result
 
 
@@ -554,6 +603,50 @@ async def get_candidates(current_user: User = Depends(get_current_user), db: Ses
     if current_user.role == "hiring_manager":
         sessions = [session for session in sessions if _manager_can_view(session)]
     return [_session_payload(session) for session in sessions]
+
+
+@app.patch("/api/candidates/{session_id}/status", response_class=JSONResponse)
+async def update_candidate_status(
+    session_id: int,
+    payload: CandidateStatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может менять статус кандидата")
+    session = _get_accessible_session(session_id, current_user, db)
+    if payload.status not in {"active", "hold", "rejected", "hired"}:
+        raise HTTPException(status_code=400, detail="Допустимые статусы: active, hold, rejected, hired")
+    lifecycle = _ensure_lifecycle(session, db)
+    lifecycle.status = payload.status
+    lifecycle.note = (payload.note or "").strip()
+    lifecycle.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    return {"message": "Статус кандидата сохранён", "candidate": _session_payload(session)}
+
+
+@app.delete("/api/candidates/{session_id}", response_class=JSONResponse)
+async def delete_candidate(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может удалять кандидатов")
+    session = _get_accessible_session(session_id, current_user, db)
+    if session.status == "in_progress":
+        raise HTTPException(status_code=400, detail="Нельзя удалить кандидата во время интервью")
+    if _latest_review(session, "hiring_manager") and (not session.lifecycle or session.lifecycle.status != "rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="У кандидата уже есть финальное решение менеджера. Сначала отметьте его как «Отказ» в HR-статусе.",
+        )
+    _delete_candidate_media(session)
+    name = session.candidate_name
+    db.delete(session)
+    db.commit()
+    return {"message": f"Кандидат {name} удалён"}
 
 
 @app.post("/api/interviews/create", response_class=JSONResponse)
@@ -575,13 +668,10 @@ async def create_interview_session(
     name = interview_data.candidate_name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Укажите имя кандидата")
-    session = InterviewSession(
-        vacancy_id=vacancy.id,
-        candidate_name=name,
-        session_token=str(uuid.uuid4()),
-        status="pending",
-    )
+    session = InterviewSession(vacancy_id=vacancy.id, candidate_name=name, session_token=str(uuid.uuid4()), status="pending")
     db.add(session)
+    db.flush()
+    db.add(CandidateLifecycle(session_id=session.id, status="active", note=""))
     db.commit()
     db.refresh(session)
     _copy_default_questions_to_session(session, db)
@@ -758,6 +848,9 @@ async def submit_answer(
     session_id: int = Form(...),
     question_id: int = Form(...),
     transcript: str = Form(""),
+    start_ms: int = Form(0),
+    end_ms: int = Form(0),
+    client_duration_ms: int = Form(0),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
@@ -777,16 +870,18 @@ async def submit_answer(
         raise HTTPException(status_code=404, detail="Вопрос не найден")
 
     audio_path = None
+    audio_duration_ms = client_duration_ms if client_duration_ms > 0 else None
+    audio_size_bytes = None
     file_bytes = b""
+    raw_upload_path = None
     if file:
         file_bytes = await file.read()
         if not file_bytes:
             raise HTTPException(status_code=400, detail="Получена пустая аудиозапись")
         extension = _safe_upload_extension(file.filename)
         filename = f"answer_{session_id}_{question_id}_{uuid.uuid4().hex[:8]}{extension}"
-        destination = UPLOAD_DIR / filename
-        destination.write_bytes(file_bytes)
-        audio_path = str(destination)
+        raw_upload_path = UPLOAD_DIR / filename
+        raw_upload_path.write_bytes(file_bytes)
 
     raw_transcript = transcript.strip()
     asr_confidence = None
@@ -797,6 +892,12 @@ async def submit_answer(
             asr_confidence = asr_result.get("confidence")
         elif not raw_transcript:
             raise HTTPException(status_code=502, detail=f"Не удалось распознать речь: {asr_result.get('error', 'ASR error')}")
+
+    if raw_upload_path:
+        normalized_path, probed_duration = normalize_audio(raw_upload_path)
+        audio_path = str(normalized_path)
+        audio_duration_ms = probed_duration or audio_duration_ms
+        audio_size_bytes = normalized_path.stat().st_size if normalized_path.exists() else len(file_bytes)
 
     answer = Answer(
         session_id=session_id,
@@ -809,6 +910,15 @@ async def submit_answer(
         is_approved_by_candidate=False,
     )
     db.add(answer)
+    db.flush()
+    effective_end = max(end_ms, start_ms + (audio_duration_ms or 0))
+    db.add(AnswerMedia(
+        answer_id=answer.id,
+        start_ms=max(0, start_ms),
+        end_ms=max(start_ms, effective_end),
+        audio_duration_ms=audio_duration_ms,
+        audio_size_bytes=audio_size_bytes,
+    ))
     db.commit()
     db.refresh(answer)
     return {
@@ -817,6 +927,8 @@ async def submit_answer(
         "transcript": raw_transcript,
         "asr_confidence": asr_confidence,
         "mock_asr": not bool(os.getenv("DEEPGRAM_API_KEY")),
+        "audio_duration_ms": audio_duration_ms,
+        "audio_size_bytes": audio_size_bytes,
     }
 
 
@@ -826,10 +938,7 @@ async def analyze_answer(answer_id: int, db: Session) -> None:
         return
     iq = (
         db.query(InterviewQuestion)
-        .filter(
-            InterviewQuestion.session_id == answer.session_id,
-            InterviewQuestion.question_text == answer.question_text,
-        )
+        .filter(InterviewQuestion.session_id == answer.session_id, InterviewQuestion.question_text == answer.question_text)
         .first()
     )
     if iq:
@@ -877,6 +986,7 @@ async def correct_transcript(payload: TranscriptCorrection, db: Session = Depend
 @app.post("/api/interviews/{session_id}/full-video", response_class=JSONResponse)
 async def upload_full_interview_video(
     session_id: int,
+    client_duration_ms: int = Form(0),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -890,7 +1000,11 @@ async def upload_full_interview_video(
     filename = f"full_interview_{session_id}{extension}"
     destination = UPLOAD_DIR / filename
     destination.write_bytes(content)
-    return {"message": "Полная видеозапись сохранена", "video_path": f"/uploads/{filename}", "size_bytes": len(content)}
+    normalized_path, probed_duration = normalize_video(destination)
+    duration_ms = probed_duration or (client_duration_ms if client_duration_ms > 0 else None)
+    _build_answer_clips(session, normalized_path, db)
+    metadata = media_metadata(str(normalized_path), duration_ms)
+    return {"message": "Полная видеозапись сохранена", "video_path": _web_upload_path(str(normalized_path)), **metadata}
 
 
 @app.post("/api/interviews/{session_id}/complete", response_class=JSONResponse)
@@ -904,19 +1018,16 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     for answer in answers:
         if answer.score is None and (answer.transcript_corrected or answer.transcript_raw):
             await analyze_answer(answer.id, db)
-    answers_data = [
-        {
-            "question": answer.question_text,
-            "transcript": answer.transcript_corrected or answer.transcript_raw,
-            "score": answer.score,
-            "analysis": (answer.llm_analysis or {}).get("analysis", ""),
-            "strengths": (answer.llm_analysis or {}).get("strengths", []),
-            "weaknesses": (answer.llm_analysis or {}).get("weaknesses", []),
-            "covered_must_have": (answer.llm_analysis or {}).get("covered_must_have", []),
-            "detected_red_flags": (answer.llm_analysis or {}).get("detected_red_flags", []),
-        }
-        for answer in answers
-    ]
+    answers_data = [{
+        "question": answer.question_text,
+        "transcript": answer.transcript_corrected or answer.transcript_raw,
+        "score": answer.score,
+        "analysis": (answer.llm_analysis or {}).get("analysis", ""),
+        "strengths": (answer.llm_analysis or {}).get("strengths", []),
+        "weaknesses": (answer.llm_analysis or {}).get("weaknesses", []),
+        "covered_must_have": (answer.llm_analysis or {}).get("covered_must_have", []),
+        "detected_red_flags": (answer.llm_analysis or {}).get("detected_red_flags", []),
+    } for answer in answers]
     report_data = await llm_service.generate_final_report(
         vacancy_title=session.vacancy.title,
         vacancy_requirements=session.vacancy.requirements or session.vacancy.description or "",
@@ -958,16 +1069,18 @@ async def hr_review(
         raise HTTPException(status_code=400, detail="Финальное решение менеджера уже принято и не может быть переопределено HR")
     if payload.decision not in {"approve", "reject", "needs_review"}:
         raise HTTPException(status_code=400, detail="Неизвестное решение")
-    db.add(
-        ReviewDecision(
-            session_id=session.id,
-            reviewer_id=current_user.id,
-            reviewer_role="hr",
-            decision=payload.decision,
-            comment=(payload.comment or "").strip(),
-        )
-    )
+    db.add(ReviewDecision(
+        session_id=session.id,
+        reviewer_id=current_user.id,
+        reviewer_role="hr",
+        decision=payload.decision,
+        comment=(payload.comment or "").strip(),
+    ))
     session.status = "hr_approved" if payload.decision == "approve" else "hr_rejected" if payload.decision == "reject" else "completed"
+    if payload.decision == "reject":
+        lifecycle = _ensure_lifecycle(session, db)
+        lifecycle.status = "rejected"
+        lifecycle.note = (payload.comment or "").strip()
     db.commit()
     db.refresh(session)
     return {"message": "Решение HR сохранено", "workflow_state": _workflow_state(session)}
@@ -992,16 +1105,17 @@ async def manager_review(
         raise HTTPException(status_code=400, detail="Финальное решение уже принято")
     if payload.decision not in {"approve", "reject"}:
         raise HTTPException(status_code=400, detail="Менеджер должен выбрать финально: одобрить или отклонить")
-    db.add(
-        ReviewDecision(
-            session_id=session.id,
-            reviewer_id=current_user.id,
-            reviewer_role="hiring_manager",
-            decision=payload.decision,
-            comment=(payload.comment or "").strip(),
-        )
-    )
+    db.add(ReviewDecision(
+        session_id=session.id,
+        reviewer_id=current_user.id,
+        reviewer_role="hiring_manager",
+        decision=payload.decision,
+        comment=(payload.comment or "").strip(),
+    ))
     session.status = "manager_approved" if payload.decision == "approve" else "manager_rejected"
+    lifecycle = _ensure_lifecycle(session, db)
+    lifecycle.status = "hired" if payload.decision == "approve" else "rejected"
+    lifecycle.note = (payload.comment or "").strip()
     db.commit()
     db.refresh(session)
     return {"message": "Финальное решение сохранено", "workflow_state": _workflow_state(session)}
@@ -1018,12 +1132,8 @@ async def get_report(
     if not report:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
-    full_video = None
-    for extension in ("webm", "mp4"):
-        candidate = UPLOAD_DIR / f"full_interview_{session_id}.{extension}"
-        if candidate.exists():
-            full_video = f"/uploads/{candidate.name}"
-            break
+    full_video = _find_full_video(session_id)
+    full_video_meta = media_metadata(str(full_video) if full_video else None)
     return {
         "id": report.id,
         "session_id": report.session_id,
@@ -1038,21 +1148,26 @@ async def get_report(
         "detected_skills": report.detected_skills or [],
         "areas_to_check": report.areas_to_check or [],
         "risk_factors": report.risk_factors or [],
-        "full_video_path": full_video,
-        "answers": [
-            {
-                "id": answer.id,
-                "question": answer.question_text,
-                "transcript": answer.transcript_corrected or answer.transcript_raw,
-                "transcript_raw": answer.transcript_raw,
-                "score": answer.score,
-                "audio_path": _web_upload_path(answer.audio_path),
-                "analysis": answer.llm_analysis,
-            }
-            for answer in answers
-        ],
+        "full_video_path": _web_upload_path(str(full_video)) if full_video else None,
+        "full_video_media": full_video_meta,
+        "answers": [{
+            "id": answer.id,
+            "question": answer.question_text,
+            "transcript": answer.transcript_corrected or answer.transcript_raw,
+            "transcript_raw": answer.transcript_raw,
+            "score": answer.score,
+            "audio_path": _web_upload_path(answer.audio_path),
+            "video_path": _web_upload_path(answer.video_path),
+            "audio_media": media_metadata(answer.audio_path, answer.media.audio_duration_ms if answer.media else None),
+            "video_media": media_metadata(answer.video_path, answer.media.video_duration_ms if answer.media else None),
+            "start_ms": answer.media.start_ms if answer.media else None,
+            "end_ms": answer.media.end_ms if answer.media else None,
+            "analysis": answer.llm_analysis,
+        } for answer in answers],
         "generated_at": report.generated_at.isoformat() if report.generated_at else None,
         "workflow_state": _workflow_state(session),
+        "lifecycle_status": session.lifecycle.status if session.lifecycle else "active",
+        "lifecycle_note": session.lifecycle.note if session.lifecycle else "",
         "hr_review": _review_payload(_latest_review(session, "hr")),
         "manager_review": _review_payload(_latest_review(session, "hiring_manager")),
         "viewer_role": current_user.role,
