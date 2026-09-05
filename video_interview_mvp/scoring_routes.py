@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 import legacy_main
+from adaptive_models import AdaptiveProbeDecision, AnswerQuestionLink
 from database import Answer, FinalReport, InterviewQuestion, InterviewSession, SessionQuestion, get_db
 from services import llm_service
 
@@ -19,15 +20,25 @@ from services import llm_service
 router = APIRouter()
 
 
-async def _analyze_answer(answer: Answer, db: Session) -> None:
-    iq = (
+def _linked_question(answer: Answer, db: Session):
+    link = db.query(AnswerQuestionLink).filter(AnswerQuestionLink.answer_id == answer.id).first()
+    if link:
+        question = db.query(InterviewQuestion).filter(InterviewQuestion.id == link.interview_question_id).first()
+        if question:
+            return question
+    return (
         db.query(InterviewQuestion)
         .filter(
             InterviewQuestion.session_id == answer.session_id,
             InterviewQuestion.question_text == answer.question_text,
         )
+        .order_by(InterviewQuestion.id)
         .first()
     )
+
+
+async def _analyze_answer(answer: Answer, db: Session) -> None:
+    iq = _linked_question(answer, db)
     if iq:
         question_id = str(iq.id)
         question_text = iq.question_text
@@ -62,23 +73,65 @@ async def _analyze_answer(answer: Answer, db: Session) -> None:
     db.commit()
 
 
-def _answer_for_final(answer: Answer, db: Session, index: int) -> dict:
-    iq = (
-        db.query(InterviewQuestion)
-        .filter(
-            InterviewQuestion.session_id == answer.session_id,
-            InterviewQuestion.question_text == answer.question_text,
-        )
+def _adaptive_answer_meta(answer: Answer, db: Session) -> dict:
+    iq = _linked_question(answer, db)
+    if not iq:
+        return {
+            "question": None,
+            "root_question_id": None,
+            "is_follow_up": False,
+            "follow_up_index": None,
+            "probe_reason": "",
+            "probe_focus": "",
+            "probe_source": "none",
+            "technical_score_0_10": answer.score,
+        }
+    parent = (
+        db.query(AdaptiveProbeDecision)
+        .filter(AdaptiveProbeDecision.follow_up_question_id == iq.id)
         .first()
     )
+    root_id = parent.root_interview_question_id if parent else iq.id
+    latest = (
+        db.query(AdaptiveProbeDecision)
+        .filter(AdaptiveProbeDecision.root_interview_question_id == root_id)
+        .order_by(AdaptiveProbeDecision.id.desc())
+        .first()
+    )
+    resolved = latest.resolved_root_score_0_10 if latest and latest.resolved_root_score_0_10 is not None else answer.score
+    return {
+        "question": iq,
+        "root_question_id": root_id,
+        "is_follow_up": bool(parent),
+        "follow_up_index": (parent.follow_up_count_before + 1) if parent else None,
+        "probe_reason": parent.reason if parent else "",
+        "probe_focus": parent.focus if parent else "",
+        "probe_source": parent.source if parent else "none",
+        "technical_score_0_10": resolved,
+    }
+
+
+def _answer_for_final(answer: Answer, db: Session, index: int) -> dict:
+    meta = _adaptive_answer_meta(answer, db)
+    iq = meta["question"]
     sq = db.query(SessionQuestion).filter(SessionQuestion.id == answer.session_question_id).first() if not iq else None
     q = sq.question if sq else None
     evaluation = answer.llm_analysis or {}
+    question_id = str(iq.id if iq else (q.id if q else index))
+    competency = (iq.competency if iq else (q.competency if q else "general")) or "general"
     return {
-        "question_id": str(iq.id if iq else (q.id if q else index)),
+        "question_id": question_id,
         "question_text": answer.question_text or (iq.question_text if iq else (q.question_text if q else "")),
-        "competency": (iq.competency if iq else (q.competency if q else "general")) or "general",
+        "competency": competency,
         "transcript": answer.transcript_corrected or answer.transcript_raw or "",
+        "is_follow_up": meta["is_follow_up"],
+        "root_question_id": str(meta["root_question_id"] or question_id),
+        "follow_up_index": meta["follow_up_index"],
+        "probe_reason": meta["probe_reason"] or "",
+        "probe_focus": meta["probe_focus"] or "",
+        "probe_source": meta["probe_source"],
+        "counts_toward_technical_average": not meta["is_follow_up"],
+        "technical_score_0_10": meta["technical_score_0_10"],
         "evaluation": {
             "score_0_10": evaluation.get("score_0_10", answer.score if answer.score is not None else 5),
             "covered_must_have": evaluation.get("covered_must_have", []),
@@ -90,6 +143,71 @@ def _answer_for_final(answer: Answer, db: Session, index: int) -> dict:
             "confidence_0_1": evaluation.get("confidence_0_1", evaluation.get("confidence", 0.0)),
         },
     }
+
+
+def _answer_for_question(question_id: int, db: Session):
+    link = (
+        db.query(AnswerQuestionLink)
+        .filter(AnswerQuestionLink.interview_question_id == question_id)
+        .order_by(AnswerQuestionLink.id.desc())
+        .first()
+    )
+    return db.query(Answer).filter(Answer.id == link.answer_id).first() if link else None
+
+
+def _adaptive_follow_up_report(session_id: int, db: Session) -> list[dict]:
+    decisions = (
+        db.query(AdaptiveProbeDecision)
+        .filter(
+            AdaptiveProbeDecision.session_id == session_id,
+            AdaptiveProbeDecision.ask_follow_up.is_(True),
+            AdaptiveProbeDecision.follow_up_question_id.is_not(None),
+        )
+        .order_by(AdaptiveProbeDecision.root_interview_question_id, AdaptiveProbeDecision.id)
+        .all()
+    )
+    grouped: dict[int, list[AdaptiveProbeDecision]] = {}
+    for decision in decisions:
+        grouped.setdefault(decision.root_interview_question_id, []).append(decision)
+
+    result = []
+    for root_id, items in grouped.items():
+        root = db.query(InterviewQuestion).filter(InterviewQuestion.id == root_id).first()
+        if not root:
+            continue
+        root_answer = _answer_for_question(root.id, db)
+        latest = (
+            db.query(AdaptiveProbeDecision)
+            .filter(AdaptiveProbeDecision.root_interview_question_id == root.id)
+            .order_by(AdaptiveProbeDecision.id.desc())
+            .first()
+        )
+        follow_ups = []
+        for decision in items:
+            question = db.query(InterviewQuestion).filter(InterviewQuestion.id == decision.follow_up_question_id).first()
+            answer = _answer_for_question(question.id, db) if question else None
+            follow_ups.append({
+                "index": decision.follow_up_count_before + 1,
+                "question_id": question.id if question else decision.follow_up_question_id,
+                "question": question.question_text if question else "",
+                "reason": decision.reason or "",
+                "focus": decision.focus or "",
+                "source": decision.source,
+                "decision_confidence_0_1": decision.confidence_0_1,
+                "transcript": (answer.transcript_corrected or answer.transcript_raw or "") if answer else "",
+                "score_0_10": answer.score if answer else None,
+                "analysis": answer.llm_analysis or {} if answer else {},
+            })
+        result.append({
+            "root_question_id": root.id,
+            "root_question": root.question_text,
+            "competency": root.competency or "general",
+            "root_transcript": (root_answer.transcript_corrected or root_answer.transcript_raw or "") if root_answer else "",
+            "follow_up_count": len(follow_ups),
+            "resolved_root_score_0_10": latest.resolved_root_score_0_10 if latest else (root_answer.score if root_answer else None),
+            "follow_ups": follow_ups,
+        })
+    return result
 
 
 @router.post("/api/interviews/{session_id}/complete", response_class=JSONResponse)
@@ -185,8 +303,6 @@ async def get_report(
         "uncovered_vacancy_topics": uncovered,
     }
 
-    # Keep the old top-level shape string-based so the existing report.html and
-    # any current consumers do not break. Rich v2 data lives in final_evaluation.
     compat_strengths = _compat_points(strengths, "point")
     compat_issues = _compat_points(issues, "point")
     compat_skills = _compat_points(competencies, "name")
@@ -195,6 +311,29 @@ async def get_report(
         for item in issues
         if isinstance(item, dict) and item.get("type") in {"риск", "противоречие"} and item.get("point")
     ]
+    answer_payloads = []
+    for answer in answers:
+        meta = _adaptive_answer_meta(answer, db)
+        answer_payloads.append({
+            "id": answer.id,
+            "question": answer.question_text,
+            "transcript": answer.transcript_corrected or answer.transcript_raw,
+            "transcript_raw": answer.transcript_raw,
+            "score": answer.score,
+            "is_follow_up": meta["is_follow_up"],
+            "root_question_id": meta["root_question_id"],
+            "follow_up_index": meta["follow_up_index"],
+            "probe_reason": meta["probe_reason"],
+            "probe_focus": meta["probe_focus"],
+            "probe_source": meta["probe_source"],
+            "audio_path": legacy_main._web_upload_path(answer.audio_path),
+            "video_path": legacy_main._web_upload_path(answer.video_path),
+            "audio_media": legacy_main.media_metadata(answer.audio_path, answer.media.audio_duration_ms if answer.media else None),
+            "video_media": legacy_main.media_metadata(answer.video_path, answer.media.video_duration_ms if answer.media else None),
+            "start_ms": answer.media.start_ms if answer.media else None,
+            "end_ms": answer.media.end_ms if answer.media else None,
+            "analysis": answer.llm_analysis,
+        })
     return {
         "id": report.id,
         "session_id": report.session_id,
@@ -212,22 +351,10 @@ async def get_report(
         "score_confidence": confidence,
         "vacancy_coverage": coverage,
         "final_evaluation": final_evaluation,
+        "adaptive_follow_ups": _adaptive_follow_up_report(session_id, db),
         "full_video_path": legacy_main._web_upload_path(str(full_video)) if full_video else None,
         "full_video_media": full_video_meta,
-        "answers": [{
-            "id": answer.id,
-            "question": answer.question_text,
-            "transcript": answer.transcript_corrected or answer.transcript_raw,
-            "transcript_raw": answer.transcript_raw,
-            "score": answer.score,
-            "audio_path": legacy_main._web_upload_path(answer.audio_path),
-            "video_path": legacy_main._web_upload_path(answer.video_path),
-            "audio_media": legacy_main.media_metadata(answer.audio_path, answer.media.audio_duration_ms if answer.media else None),
-            "video_media": legacy_main.media_metadata(answer.video_path, answer.media.video_duration_ms if answer.media else None),
-            "start_ms": answer.media.start_ms if answer.media else None,
-            "end_ms": answer.media.end_ms if answer.media else None,
-            "analysis": answer.llm_analysis,
-        } for answer in answers],
+        "answers": answer_payloads,
         "generated_at": report.generated_at.isoformat() if report.generated_at else None,
         "workflow_state": legacy_main._workflow_state(session),
         "lifecycle_status": session.lifecycle.status if session.lifecycle else "active",
