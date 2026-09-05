@@ -16,14 +16,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-или:
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
-
-Откройте `http://localhost:8000`.
+Откройте `https://localhost:8000`.
 
 **`main.py` — единственная публичная точка запуска.** Никаких `app:app`, master-key или специальных режимов знать не нужно.
+
+При первом локальном запуске `main.py` автоматически создаёт временный self-signed сертификат в `.certs/`. Браузер может один раз показать предупреждение о локальном сертификате — это нормально для dev-режима. Для настоящего домена задайте готовые сертификаты через `TLS_CERT_FILE` и `TLS_KEY_FILE`; при необходимости можно указать `TLS_HOST`.
 
 Без LLM/Deepgram ключей приложение остаётся проходимым в mock-режиме.
 
@@ -31,11 +28,11 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 Для существующего пользователя всё просто:
 
-1. открыть `/login`;
+1. открыть `https://localhost:8000/login`;
 2. ввести обычные логин и пароль;
 3. после входа открыть `/dashboard`.
 
-Сессия хранится на сервере, браузер получает только HttpOnly cookie. Старые plaintext-пароли автоматически мигрируют в PBKDF2 после успешного входа, включая старые короткие пароли.
+Сессия хранится на сервере, браузер получает только `Secure + HttpOnly + SameSite=Lax` cookie. Старые plaintext-пароли автоматически мигрируют в PBKDF2 после успешного входа, включая старые короткие пароли.
 
 Если база пустая, `/login` предложит создать первый HR-аккаунт. После этого новые сотрудники добавляются только через **«Пригласить коллегу»** в HR workspace. Invite одноразовый, действует 48 часов, роль уже закреплена в ссылке.
 
@@ -61,6 +58,18 @@ Browser `MediaRecorder` → backend → `ffmpeg/ffprobe` normalization. Full vid
 - Deepgram API or mock ASR
 - Qwen/OpenRouter-compatible LLM API or mock evaluator
 - browser SpeechSynthesis
+
+## HTTPS configuration
+
+По умолчанию dev-сертификат создаётся автоматически. Для внешнего HTTPS-сертификата:
+
+```env
+TLS_CERT_FILE=/path/to/fullchain.pem
+TLS_KEY_FILE=/path/to/privkey.pem
+TLS_HOST=interview.example.com
+```
+
+`TLS_CERT_FILE` и `TLS_KEY_FILE` должны задаваться вместе.
 
 ## Проверки
 
