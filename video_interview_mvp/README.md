@@ -4,6 +4,8 @@
 
 ## Быстрый старт
 
+### Docker
+
 ```bash
 cp .env.example .env
 docker compose up --build
@@ -11,47 +13,72 @@ docker compose up --build
 
 Откройте `http://localhost:8000`.
 
-Без LLM/Deepgram ключей приложение остаётся проходимым в mock-режиме.
-
-Для локального запуска без Docker:
+### Локально
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8000
+python main.py
 ```
 
-> Запускайте именно `app:app`: это gateway с новой авторизацией и прокторингом. `main.py` остаётся business-layer приложения и монтируется внутрь gateway.
+или эквивалентно:
 
-## Авторизация в MVP
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
-Общих `HR_INVITE_TOKEN` / `MANAGER_INVITE_TOKEN` больше нет.
+**`main.py` — единственная публичная точка запуска приложения.** Никаких `app:app`, master-key или специальных режимов знать не нужно.
 
-1. На пустой базе первый зарегистрированный пользователь становится HR-владельцем workspace.
-2. После этого свободная регистрация закрывается.
-3. HR в workspace нажимает **«Пригласить коллегу»** и выбирает роль.
-4. Backend создаёт случайную одноразовую ссылку, действующую 48 часов.
-5. Роль зафиксирована в invitation record и не выбирается приглашённым пользователем.
+Без LLM/Deepgram ключей приложение остаётся проходимым в mock-режиме.
 
-После login backend создаёт случайный opaque session token. В SQLite хранится только его SHA-256 hash, а браузер получает token через `HttpOnly + SameSite=Lax` cookie. Пароль не попадает в `localStorage` или JavaScript.
+## Вход в workspace
 
-Пароли хранятся как `PBKDF2-HMAC-SHA256` с индивидуальной солью. Старые plaintext-пароли из предыдущей версии MVP автоматически мигрируют в hash после первого успешного login.
+Для уже существующего пользователя всё просто:
 
-Logout отзывает server-side session. Session TTL сейчас 8 часов.
+1. открыть `/login`;
+2. ввести обычные логин и пароль;
+3. после успешного входа перейти в `/dashboard`.
 
-## Browser proctoring
+Backend создаёт server-side session, а браузер получает только `HttpOnly + SameSite=Lax` cookie. Пароль и session token не сохраняются в localStorage.
 
-Во время интервью кандидат заранее видит уведомление о базовом прокторинге. После старта браузер фиксирует только технические integrity-signals:
+Старые аккаунты из предыдущего MVP продолжают работать: plaintext-пароль при первом успешном входе автоматически мигрирует в `PBKDF2-HMAC-SHA256`, в том числе если старый пароль короче текущего требования в 8 символов.
+
+### Первый запуск
+
+Если таблица пользователей пустая, `/login` явно предложит создать первый HR-аккаунт. Это единственный случай свободной регистрации.
+
+### Новый коллега
+
+После создания первого HR новые пользователи добавляются только так:
+
+1. HR входит в workspace;
+2. нажимает **«Пригласить коллегу»**;
+3. выбирает `HR` или `Нанимающий менеджер`;
+4. отправляет полученную одноразовую ссылку;
+5. приглашённый открывает её и создаёт свой аккаунт.
+
+Роль уже закреплена в invitation link. Ссылка действует 48 часов и одноразовая.
+
+## Прокторинг
+
+Во время интервью кандидат заранее видит уведомление. После старта фиксируются браузерные integrity-signals:
 
 - скрытие/возврат вкладки и длительность;
-- потерю/возврат фокуса окна;
-- copy / cut / paste **без содержимого буфера обмена**;
+- потеря/возврат фокуса окна;
+- copy / cut / paste без содержимого буфера обмена;
 - вход/выход из fullscreen;
 - offline / online;
-- остановку camera/microphone tracks.
+- остановка camera/microphone tracks.
 
-События батчатся в `/api/interviews/{session_token}/proctor-events`. HR и hiring manager видят агрегаты в отчёте.
+Дополнительно client-side MediaPipe Face Landmarker анализирует тот же webcam stream, который уже используется интервью. Второй доступ к камере не открывается. На backend отправляются только агрегированные события:
 
-**Важно:** сигналы прокторинга не входят в technical score, не являются доказательством нарушения и предназначены только для human review.
+- лицо долго отсутствует;
+- в кадре несколько лиц;
+- длительный поворот головы;
+- длительный взгляд в сторону.
+
+Кадры и face landmarks на сервер не отправляются. Если MediaPipe не загрузился, интервью продолжает работать без ML-прокторинга.
+
+**Прокторинг не входит в technical score** и показывается только как evidence для ручной проверки.
 
 ## Основной flow
 
@@ -59,30 +86,29 @@ Logout отзывает server-side session. Session TTL сейчас 8 часо
 
 - создаёт вакансию из raw text;
 - получает suggested question pool и утверждает базовый набор;
-- для конкретного кандидата может менять/выключать вопросы и добавлять свои до старта интервью;
+- до старта персонализирует вопросы кандидата;
 - создаёт candidate link;
 - получает video/audio/transcript/evidence-based AI report;
-- делает первый approve / reject / needs review;
-- управляет HR lifecycle (`active / hold / rejected / hired`).
+- делает approve / reject / needs review;
+- управляет HR lifecycle кандидата.
 
 ### Candidate
 
 - открывает персональную ссылку;
 - проверяет camera/mic;
-- видит предупреждение о прокторинге;
-- отвечает на вопросы в chat-style UI;
-- после ответа проверяет ASR transcript;
-- система пишет непрерывное full interview video и отдельный audio каждого ответа.
+- проходит техническое интервью;
+- проверяет ASR transcript каждого ответа;
+- система сохраняет full interview video и отдельное audio каждого ответа.
 
 ### Hiring manager
 
-- видит только кандидатов после явного HR approve;
-- читает AI report, evidence, media и HR comment;
+- видит кандидата только после явного HR approve;
+- читает report, evidence, media и HR comment;
 - принимает финальное approve/reject решение.
 
 ## Media
 
-Browser `MediaRecorder` → backend → `ffmpeg/ffprobe` normalization. Full video хранится непрерывно, а после интервью backend строит per-answer clips по `start_ms/end_ms`. Report API возвращает duration/size/playable metadata, поэтому битый `0:00` файл не скрывается от пользователя.
+Browser `MediaRecorder` → backend → `ffmpeg/ffprobe` normalization. Full video хранится непрерывно, после интервью строятся per-answer clips по `start_ms/end_ms`.
 
 ## Stack
 
@@ -90,6 +116,7 @@ Browser `MediaRecorder` → backend → `ffmpeg/ffprobe` normalization. Full vid
 - SQLite for MVP
 - Vanilla JS + HTML/CSS
 - MediaRecorder
+- MediaPipe Face Landmarker
 - ffmpeg / ffprobe
 - Deepgram API or mock ASR
 - Qwen/OpenRouter-compatible LLM API or mock evaluator
@@ -104,16 +131,16 @@ LLM_MODEL=qwen/qwen-2.5-72b-instruct
 DEEPGRAM_API_KEY=
 ```
 
-Auth session/invite tokens are generated randomly at runtime and are not shared environment secrets.
+Auth session/invite tokens генерируются случайно на runtime и не являются shared secrets.
 
-## Smoke tests
+## Проверки
 
 ```bash
 python -m compileall -q .
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions запускает эти проверки для изменений `video_interview_mvp/**`.
+GitHub Actions также проверяет синтаксис browser JS и обе поддерживаемые формы импорта приложения.
 
 ## Ограничения MVP
 
@@ -121,5 +148,4 @@ GitHub Actions запускает эти проверки для изменен�
 - один workspace без полноценной organization model;
 - нет email delivery invitation links;
 - нет password reset / MFA / SSO;
-- browser proctoring — только evidence signal, не автоматический anti-cheat classifier;
-- нейросетевой gaze/audio proctoring намеренно вынесен в следующий этап после отдельной проверки технологий.
+- proctoring — evidence signal, а не автоматический anti-cheat verdict.
