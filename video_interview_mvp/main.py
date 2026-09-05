@@ -1,7 +1,6 @@
 """FastAPI application for the AI video interview MVP."""
 import json
 import os
-import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -36,7 +35,7 @@ QUESTIONS_FILE = BASE_DIR / "data" / "questions.json"
 # Database is intentionally lightweight for the hackathon MVP.
 database.init_db()
 
-app = FastAPI(title="Video Interview MVP", version="1.1.0")
+app = FastAPI(title="Video Interview MVP", version="1.2.0")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -59,9 +58,16 @@ class UserCreate(BaseModel):
 
 
 class VacancyCreate(BaseModel):
+    """Vacancy input.
+
+    The new HR UI sends one raw vacancy text. ``description`` and
+    ``requirements`` stay optional for backward compatibility with the old UI.
+    """
+
     title: str
-    description: str
-    requirements: str
+    vacancy_text: Optional[str] = None
+    description: Optional[str] = None
+    requirements: Optional[str] = None
     grade: Optional[str] = "middle"
 
 
@@ -105,6 +111,50 @@ def _web_upload_path(path: Optional[str]) -> Optional[str]:
     return f"/uploads/{Path(path).name}"
 
 
+def _load_question_bank() -> List[dict]:
+    if not QUESTIONS_FILE.exists():
+        return []
+    with QUESTIONS_FILE.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _get_accessible_vacancy(
+    vacancy_id: int,
+    current_user: User,
+    db: Session,
+) -> Vacancy:
+    query = db.query(Vacancy).filter(Vacancy.id == vacancy_id)
+    if current_user.role == "hr":
+        query = query.filter(Vacancy.owner_id == current_user.id)
+    vacancy = query.first()
+    if not vacancy:
+        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+    return vacancy
+
+
+def _question_counts(vacancy: Vacancy) -> tuple[int, int]:
+    questions = vacancy.session_questions or []
+    return len(questions), sum(1 for item in questions if item.is_approved)
+
+
+def _session_payload(session: InterviewSession) -> dict:
+    report = session.final_report
+    return {
+        "id": session.id,
+        "candidate_name": session.candidate_name,
+        "status": session.status,
+        "vacancy_id": session.vacancy_id,
+        "vacancy_title": session.vacancy.title if session.vacancy else "",
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "interview_url": f"/interview/{session.session_token}",
+        "report_url": f"/report/{session.id}" if report else None,
+        "overall_score": report.overall_score if report else None,
+        "recommendation": report.recommendation if report else None,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request})
@@ -122,7 +172,7 @@ async def register_page(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    # The current MVP keeps browser-side Basic Auth state in the dashboard.
+    # Browser-side Basic Auth is sufficient for the hackathon MVP.
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
@@ -160,28 +210,40 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return {"message": "Пользователь успешно создан", "username": user.username}
 
 
+# ---------------------------------------------------------------------------
+# HR workspace: vacancies, suggested questions and candidates
+# ---------------------------------------------------------------------------
+
 @app.get("/api/vacancies", response_class=JSONResponse)
 async def get_vacancies(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Hiring managers need the same list in the demo UI; HR sees owned vacancies.
     query = db.query(Vacancy)
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
     vacancies = query.order_by(Vacancy.created_at.desc()).all()
-    return [
-        {
-            "id": v.id,
-            "title": v.title,
-            "grade": v.grade,
-            "detected_tags": v.detected_tags or [],
-            "created_at": v.created_at.isoformat() if v.created_at else None,
-            "is_active": v.is_active,
-            "sessions_count": len(v.interview_sessions),
-        }
-        for v in vacancies
-    ]
+
+    result = []
+    for vacancy in vacancies:
+        questions_count, approved_count = _question_counts(vacancy)
+        completed_count = sum(1 for session in vacancy.interview_sessions if session.status == "completed")
+        result.append(
+            {
+                "id": vacancy.id,
+                "title": vacancy.title,
+                "grade": vacancy.grade,
+                "detected_tags": vacancy.detected_tags or [],
+                "created_at": vacancy.created_at.isoformat() if vacancy.created_at else None,
+                "is_active": vacancy.is_active,
+                "sessions_count": len(vacancy.interview_sessions),
+                "completed_sessions_count": completed_count,
+                "questions_count": questions_count,
+                "approved_questions_count": approved_count,
+                "questions_approved": approved_count > 0,
+            }
+        )
+    return result
 
 
 @app.post("/api/vacancies", response_class=JSONResponse)
@@ -193,15 +255,30 @@ async def create_vacancy(
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR-менеджеры могут создавать вакансии")
 
-    detected_tags = await llm_service.extract_tags_from_vacancy(
-        vacancy_data.description,
-        vacancy_data.requirements,
-    )
+    title = vacancy_data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Укажите название вакансии")
+
+    # New flow: HR pastes the original vacancy as one source text. The old
+    # description/requirements fields are still accepted so existing calls work.
+    source_text = (vacancy_data.vacancy_text or "").strip()
+    if not source_text:
+        source_text = "\n\n".join(
+            part.strip()
+            for part in [vacancy_data.description or "", vacancy_data.requirements or ""]
+            if part and part.strip()
+        ).strip()
+    if not source_text:
+        raise HTTPException(status_code=400, detail="Вставьте текст вакансии")
+
+    detected_tags = await llm_service.extract_tags_from_vacancy(source_text, source_text)
     vacancy = Vacancy(
-        title=vacancy_data.title,
-        description=vacancy_data.description,
-        requirements=vacancy_data.requirements,
-        grade=vacancy_data.grade,
+        title=title,
+        description=source_text,
+        # The final evaluator expects requirements. For the raw-text MVP the full
+        # vacancy is the source of truth for both extraction and final evaluation.
+        requirements=source_text,
+        grade=vacancy_data.grade or "middle",
         detected_tags=detected_tags,
         owner_id=current_user.id,
     )
@@ -209,17 +286,19 @@ async def create_vacancy(
     db.commit()
     db.refresh(vacancy)
 
-    available_questions = []
-    if QUESTIONS_FILE.exists():
-        with QUESTIONS_FILE.open("r", encoding="utf-8") as file:
-            available_questions = json.load(file)
-
+    question_bank = _load_question_bank()
     suggested = await llm_service.suggest_questions_for_vacancy(
         detected_tags=detected_tags,
-        grade=vacancy_data.grade,
-        available_questions=available_questions,
+        grade=vacancy.grade,
+        available_questions=question_bank,
         limit=MAX_QUESTIONS_PER_INTERVIEW,
     )
+
+    # A generic fallback keeps the demo usable for a vacancy whose stack is not
+    # fully covered by TAGS_KEYWORDS. It is deliberately a question-bank fallback,
+    # not an invented LLM question, so the rubric/evidence metadata remains stable.
+    if not suggested and question_bank:
+        suggested = question_bank[: min(MAX_QUESTIONS_PER_INTERVIEW, len(question_bank))]
 
     for idx, item in enumerate(suggested):
         question = db.query(Question).filter(Question.question_text == item["question"]).first()
@@ -235,12 +314,15 @@ async def create_vacancy(
             )
             db.add(question)
             db.flush()
+
+        # Suggestions are NOT approved automatically. HR explicitly selects the
+        # final core questions before an invitation can be created.
         db.add(
             SessionQuestion(
                 vacancy_id=vacancy.id,
                 question_id=question.id,
                 order_index=idx,
-                is_approved=True,
+                is_approved=False,
             )
         )
     db.commit()
@@ -250,6 +332,7 @@ async def create_vacancy(
         "title": vacancy.title,
         "detected_tags": detected_tags,
         "suggested_questions_count": len(suggested),
+        "questions_approved": False,
     }
 
 
@@ -259,48 +342,52 @@ async def get_vacancy_details(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    vacancy = db.query(Vacancy).filter(Vacancy.id == vacancy_id).first()
-    if not vacancy:
-        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+    vacancy = _get_accessible_vacancy(vacancy_id, current_user, db)
 
     session_questions = (
         db.query(SessionQuestion)
         .filter(SessionQuestion.vacancy_id == vacancy_id)
-        .order_by(SessionQuestion.order_index)
+        .order_by(SessionQuestion.order_index, SessionQuestion.id)
         .all()
     )
     questions = []
-    for sq in session_questions:
-        q = db.query(Question).filter(Question.id == sq.question_id).first()
-        if q:
-            questions.append(
-                {
-                    "session_question_id": sq.id,
-                    "id": q.id,
-                    "question": q.question_text,
-                    "tags": q.tags or [],
-                    "competency": q.competency,
-                }
-            )
+    for item in session_questions:
+        question = item.question
+        if not question:
+            continue
+        questions.append(
+            {
+                "session_question_id": item.id,
+                "id": question.id,
+                "question": question.question_text,
+                "tags": question.tags or [],
+                "competency": question.competency or "",
+                "must_have": question.must_have or [],
+                "nice_to_have": question.nice_to_have or [],
+                "is_approved": bool(item.is_approved),
+            }
+        )
 
-    sessions = db.query(InterviewSession).filter(InterviewSession.vacancy_id == vacancy_id).all()
+    sessions = (
+        db.query(InterviewSession)
+        .filter(InterviewSession.vacancy_id == vacancy_id)
+        .order_by(InterviewSession.created_at.desc())
+        .all()
+    )
+    approved_count = sum(1 for question in questions if question["is_approved"])
     return {
         "id": vacancy.id,
         "title": vacancy.title,
+        "vacancy_text": vacancy.description or vacancy.requirements or "",
         "description": vacancy.description,
         "requirements": vacancy.requirements,
         "grade": vacancy.grade,
         "detected_tags": vacancy.detected_tags or [],
         "questions": questions,
-        "sessions": [
-            {
-                "id": s.id,
-                "candidate_name": s.candidate_name,
-                "status": s.status,
-                "created_at": s.created_at.isoformat() if s.created_at else None,
-            }
-            for s in sessions
-        ],
+        "questions_count": len(questions),
+        "approved_questions_count": approved_count,
+        "questions_approved": approved_count > 0,
+        "sessions": [_session_payload(session) for session in sessions],
     }
 
 
@@ -313,21 +400,85 @@ async def approve_vacancy_questions(
 ):
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Недостаточно прав")
-    if not db.query(Vacancy).filter(Vacancy.id == vacancy_id).first():
-        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+    _get_accessible_vacancy(vacancy_id, current_user, db)
 
-    db.query(SessionQuestion).filter(SessionQuestion.vacancy_id == vacancy_id).delete()
-    for idx, question_id in enumerate(question_ids):
-        db.add(
-            SessionQuestion(
-                vacancy_id=vacancy_id,
-                question_id=question_id,
-                order_index=idx,
-                is_approved=True,
-            )
-        )
+    session_questions = (
+        db.query(SessionQuestion)
+        .filter(SessionQuestion.vacancy_id == vacancy_id)
+        .order_by(SessionQuestion.order_index, SessionQuestion.id)
+        .all()
+    )
+    if not session_questions:
+        raise HTTPException(status_code=400, detail="Для вакансии нет предложенных вопросов")
+    if not question_ids:
+        raise HTTPException(status_code=400, detail="Выберите хотя бы один вопрос")
+
+    existing_ids = {item.question_id for item in session_questions}
+    requested_ids = list(dict.fromkeys(question_ids))
+    if any(question_id not in existing_ids for question_id in requested_ids):
+        raise HTTPException(status_code=400, detail="В списке есть вопрос, не относящийся к вакансии")
+
+    selected_order = {question_id: index for index, question_id in enumerate(requested_ids)}
+    rejected_index = len(requested_ids)
+    for item in session_questions:
+        item.is_approved = item.question_id in selected_order
+        if item.is_approved:
+            item.order_index = selected_order[item.question_id]
+        else:
+            item.order_index = rejected_index
+            rejected_index += 1
     db.commit()
-    return {"message": "Вопросы успешно аппрувлены", "count": len(question_ids)}
+
+    return {
+        "message": "Сценарий интервью сохранён",
+        "approved_count": len(requested_ids),
+        "rejected_count": len(session_questions) - len(requested_ids),
+    }
+
+
+@app.get("/api/questions", response_class=JSONResponse)
+async def get_question_bank(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Question bank visible to HR and hiring managers.
+
+    The bank remains JSON-backed for the hackathon: no vector DB or admin CMS is
+    needed. Database ids/usage are added when a bank question has already been used.
+    """
+    question_bank = _load_question_bank()
+    db_questions = db.query(Question).all()
+    by_text = {question.question_text: question for question in db_questions}
+
+    result = []
+    for item in question_bank:
+        db_question = by_text.get(item.get("question", ""))
+        result.append(
+            {
+                "bank_id": item.get("id"),
+                "database_id": db_question.id if db_question else None,
+                "question": item.get("question", ""),
+                "tags": item.get("tags", []),
+                "competency": item.get("competency", ""),
+                "must_have": item.get("must_have", []),
+                "nice_to_have": item.get("nice_to_have", []),
+                "usage_count": len(db_question.session_questions) if db_question else 0,
+            }
+        )
+    return result
+
+
+@app.get("/api/candidates", response_class=JSONResponse)
+async def get_candidates(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """All candidates visible in the HR workspace, newest first."""
+    query = db.query(InterviewSession).join(Vacancy)
+    if current_user.role == "hr":
+        query = query.filter(Vacancy.owner_id == current_user.id)
+    sessions = query.order_by(InterviewSession.created_at.desc()).all()
+    return [_session_payload(session) for session in sessions]
 
 
 @app.post("/api/interviews/create", response_class=JSONResponse)
@@ -338,13 +489,29 @@ async def create_interview_session(
 ):
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR-менеджеры могут создавать интервью")
-    vacancy = db.query(Vacancy).filter(Vacancy.id == interview_data.vacancy_id).first()
-    if not vacancy:
-        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+    vacancy = _get_accessible_vacancy(interview_data.vacancy_id, current_user, db)
+
+    approved_count = (
+        db.query(SessionQuestion)
+        .filter(
+            SessionQuestion.vacancy_id == vacancy.id,
+            SessionQuestion.is_approved.is_(True),
+        )
+        .count()
+    )
+    if approved_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Сначала утвердите вопросы для этой вакансии",
+        )
+
+    candidate_name = interview_data.candidate_name.strip()
+    if not candidate_name:
+        raise HTTPException(status_code=400, detail="Укажите имя кандидата")
 
     session = InterviewSession(
         vacancy_id=vacancy.id,
-        candidate_name=interview_data.candidate_name,
+        candidate_name=candidate_name,
         session_token=str(uuid.uuid4()),
         status="pending",
     )
@@ -356,8 +523,13 @@ async def create_interview_session(
         "session_token": session.session_token,
         "interview_url": f"/interview/{session.session_token}",
         "candidate_name": session.candidate_name,
+        "vacancy_title": vacancy.title,
     }
 
+
+# ---------------------------------------------------------------------------
+# Candidate interview flow
+# ---------------------------------------------------------------------------
 
 @app.get("/api/interviews/{session_token}", response_class=JSONResponse)
 async def get_interview_session(session_token: str, db: Session = Depends(get_db)):
@@ -369,15 +541,25 @@ async def get_interview_session(session_token: str, db: Session = Depends(get_db
 
     session_questions = (
         db.query(SessionQuestion)
-        .filter(SessionQuestion.vacancy_id == session.vacancy_id)
-        .order_by(SessionQuestion.order_index)
+        .filter(
+            SessionQuestion.vacancy_id == session.vacancy_id,
+            SessionQuestion.is_approved.is_(True),
+        )
+        .order_by(SessionQuestion.order_index, SessionQuestion.id)
         .all()
     )
     questions = []
-    for sq in session_questions:
-        q = db.query(Question).filter(Question.id == sq.question_id).first()
-        if q:
-            questions.append({"session_question_id": sq.id, "question": q.question_text})
+    for item in session_questions:
+        if item.question:
+            questions.append(
+                {
+                    "session_question_id": item.id,
+                    "question": item.question.question_text,
+                }
+            )
+
+    if not questions:
+        raise HTTPException(status_code=400, detail="HR ещё не утвердил вопросы интервью")
 
     return {
         "session_id": session.id,
@@ -411,9 +593,8 @@ async def submit_answer(
 ):
     """Store one answer audio and return its ASR transcript.
 
-    This endpoint deliberately works without API keys: ASRService returns a mock
-    transcript when DEEPGRAM_API_KEY is absent, so the complete UI flow remains
-    testable on a fresh checkout.
+    The endpoint works without API keys: ASRService returns a mock transcript when
+    DEEPGRAM_API_KEY is absent, so the complete UI flow stays testable locally.
     """
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
@@ -424,12 +605,13 @@ async def submit_answer(
         .filter(
             SessionQuestion.id == question_id,
             SessionQuestion.vacancy_id == session.vacancy_id,
+            SessionQuestion.is_approved.is_(True),
         )
         .first()
     )
     if not session_question:
         raise HTTPException(status_code=404, detail="Вопрос не найден")
-    question = db.query(Question).filter(Question.id == session_question.question_id).first()
+    question = session_question.question
 
     audio_path = None
     file_bytes = b""
@@ -484,11 +666,9 @@ async def analyze_answer(answer_id: int, db: Session) -> None:
     if not answer:
         return
     session_question = db.query(SessionQuestion).filter(SessionQuestion.id == answer.session_question_id).first()
-    if not session_question:
+    if not session_question or not session_question.question:
         return
-    question = db.query(Question).filter(Question.id == session_question.question_id).first()
-    if not question:
-        return
+    question = session_question.question
 
     analysis = await llm_service.analyze_answer(
         question=question.question_text,
@@ -516,8 +696,6 @@ async def correct_transcript(payload: TranscriptCorrection, db: Session = Depend
     answer.transcript_corrected = corrected
     answer.is_approved_by_candidate = True
     db.commit()
-    # One inexpensive evaluation call per confirmed answer. With no LLM_API_KEY the
-    # service uses its built-in mock, keeping local/demo mode fully functional.
     await analyze_answer(answer.id, db)
     return {"message": "Транскрипция подтверждена", "answer_id": answer.id}
 
@@ -556,7 +734,6 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     if not answers:
         raise HTTPException(status_code=400, detail="Нельзя завершить интервью без ответов")
 
-    # Recover gracefully if a candidate closed transcript review without analysis.
     for answer in answers:
         if answer.score is None and (answer.transcript_corrected or answer.transcript_raw):
             await analyze_answer(answer.id, db)
@@ -574,7 +751,7 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     ]
     report_data = await llm_service.generate_final_report(
         vacancy_title=session.vacancy.title,
-        vacancy_requirements=session.vacancy.requirements or "",
+        vacancy_requirements=session.vacancy.requirements or session.vacancy.description or "",
         answers_data=answers_data,
     )
 
@@ -599,6 +776,10 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     return {"message": "Интервью завершено, отчёт сгенерирован", "report_id": final_report.id}
 
 
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
 @app.get("/api/reports/{session_id}", response_class=JSONResponse)
 async def get_report(
     session_id: int,
@@ -607,6 +788,9 @@ async def get_report(
 ):
     report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
     if not report:
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+
+    if current_user.role == "hr" and report.interview_session.vacancy.owner_id != current_user.id:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
 
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
