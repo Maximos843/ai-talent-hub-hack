@@ -1,10 +1,21 @@
-"""LLM helpers for answer evaluation, report generation and question selection."""
+"""LLM helpers for answer evaluation, final interview evaluation and question selection."""
+from __future__ import annotations
+
 import json
+from pathlib import Path
 from typing import Any, Dict, List
 
 import httpx
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, SCORE_MAX, SCORE_MIN
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+PROMPTS_DIR = BASE_DIR / "prompts"
+RECOMMENDATIONS = {"подходит", "не подходит", "требуется дополнительная проверка"}
+COMPETENCY_STATUSES = {"подтверждена", "частично подтверждена", "не проверена", "есть риск"}
+COVERAGE_STATUSES = {"подтверждено", "частично подтверждено", "не проверено", "есть риск"}
+ISSUE_TYPES = {"риск", "противоречие", "зона роста"}
 
 
 class LLMService:
@@ -15,18 +26,18 @@ class LLMService:
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost:8000",
+            "HTTP-Referer": "https://localhost:8000",
             "X-Title": "Talent Interview MVP",
         }
 
-    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.2) -> str:
+    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.1) -> str:
         if not self.api_key:
             return self._get_mock_response(messages)
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 2400,
+            "max_tokens": 3600,
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -37,50 +48,67 @@ class LLMService:
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
-    def _get_mock_response(self, messages: List[Dict[str, str]]) -> str:
-        last_message = messages[-1]["content"] if messages else ""
-        lowered = last_message.lower()
-        if "оцени ответ" in lowered:
-            return json.dumps(
-                {
-                    "score": 7.0,
-                    "technical_correctness": 3,
-                    "depth": 2,
-                    "practical_example": 2,
-                    "personal_contribution": 2,
-                    "scale_and_metrics": 1,
-                    "analysis": "Ответ показывает понимание темы, но практические детали и измеримый результат раскрыты не полностью.",
-                    "strengths": ["Корректно описаны основные концепции"],
-                    "weaknesses": ["Недостаточно конкретики по личному вкладу и метрикам"],
-                    "covered_must_have": [],
-                    "covered_nice_to_have": [],
-                    "detected_red_flags": [],
-                    "evidence_quotes": ["mock: ответ кандидата доступен только в demo-режиме"],
-                    "confidence": 0.75,
-                },
-                ensure_ascii=False,
-            )
-        if "итоговый отчет" in lowered or "сформируй заключение" in lowered:
-            return json.dumps(
-                {
-                    "overall_score": 7.0,
-                    "recommendation": "требуется дополнительная проверка",
-                    "summary": "Кандидат демонстрирует рабочее понимание основных тем. Для уверенного решения не хватает нескольких подтверждённых практических деталей.",
-                    "strengths": ["Понимание ключевых технических концепций"],
-                    "weaknesses": ["Не во всех ответах достаточно конкретных примеров и метрик"],
-                    "detected_skills": ["Python", "Backend"],
-                    "areas_to_check": ["Практический опыт и масштаб задач"],
-                    "risk_factors": [],
-                },
-                ensure_ascii=False,
-            )
-        return "OK"
-
     @staticmethod
     def _parse_json(response: str) -> Dict[str, Any]:
         start = response.find("{")
         end = response.rfind("}") + 1
-        return json.loads(response[start:end] if start >= 0 and end > start else response)
+        parsed = json.loads(response[start:end] if start >= 0 and end > start else response)
+        if not isinstance(parsed, dict):
+            raise ValueError("LLM response must be a JSON object")
+        return parsed
+
+    @staticmethod
+    def _load_prompt(name: str, input_data: dict) -> str:
+        template = (PROMPTS_DIR / name).read_text(encoding="utf-8")
+        return template.replace("{{INPUT_JSON}}", json.dumps(input_data, ensure_ascii=False, indent=2))
+
+    @staticmethod
+    def _strings(value: Any) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        result = []
+        for item in value:
+            if isinstance(item, str) and item.strip() and item.strip() not in result:
+                result.append(item.strip())
+        return result
+
+    @staticmethod
+    def _subset(value: Any, allowed: List[str]) -> List[str]:
+        allowed_set = set(allowed or [])
+        return [item for item in LLMService._strings(value) if item in allowed_set]
+
+    @staticmethod
+    def _quotes(value: Any, transcripts: List[str]) -> List[str]:
+        result = []
+        for quote in LLMService._strings(value):
+            if any(quote in (text or "") for text in transcripts) and quote not in result:
+                result.append(quote)
+        return result
+
+    def _get_mock_response(self, messages: List[Dict[str, str]]) -> str:
+        text = messages[-1]["content"] if messages else ""
+        if '"candidate_answers"' in text and '"vacancy_coverage"' in text:
+            return json.dumps({
+                "recommendation": "требуется дополнительная проверка",
+                "overall_score_0_10": 7.0,
+                "confidence_0_1": 0.72,
+                "summary": "Ответы показывают рабочее понимание части проверенных технических тем. Непроверенные требования вакансии следует подтвердить на следующем этапе.",
+                "competencies": [],
+                "vacancy_coverage": {"must_have": [], "nice_to_have": []},
+                "strengths": [],
+                "issues": [],
+                "uncovered_vacancy_topics": [],
+            }, ensure_ascii=False)
+        return json.dumps({
+            "score_0_10": 7,
+            "covered_must_have": [],
+            "missing_must_have": [],
+            "covered_nice_to_have": [],
+            "red_flags_found": [],
+            "evidence_quotes": [],
+            "summary": "Ответ содержит релевантные технические элементы, но часть критериев требует дополнительного подтверждения.",
+            "confidence_0_1": 0.7,
+        }, ensure_ascii=False)
 
     async def analyze_answer(
         self,
@@ -90,86 +118,140 @@ class LLMService:
         nice_to_have: List[str],
         red_flags: List[str],
         candidate_transcript: str,
+        question_id: str = "",
+        competency: str = "",
     ) -> Dict[str, Any]:
-        prompt = f"""Ты технический эксперт. ОЦЕНИ ответ кандидата строго по содержанию ответа.
-
-ВОПРОС:
-{question}
-
-ОРИЕНТИР СИЛЬНОГО ОТВЕТА:
-{reference_answer}
-
-MUST-HAVE СИГНАЛЫ:
-{chr(10).join(f'- {item}' for item in must_have) or '- нет'}
-
-NICE-TO-HAVE СИГНАЛЫ:
-{chr(10).join(f'- {item}' for item in nice_to_have) or '- нет'}
-
-КРАСНЫЕ ФЛАГИ:
-{chr(10).join(f'- {item}' for item in red_flags) or '- нет'}
-
-ОТВЕТ КАНДИДАТА:
-{candidate_transcript}
-
-Правила оценки:
-1. Не додумывай опыт и знания, которых кандидат не озвучил.
-2. Не штрафуй за навык, который этим вопросом не проверяется.
-3. Теоретическое упоминание термина не равно практическому опыту.
-4. Отличай корректность, глубину, реальный пример, личный вклад и масштаб/метрики.
-5. Все существенные выводы подкрепи короткими фрагментами из ответа кандидата.
-6. Если информации мало, понижай confidence, а не выдумывай вывод.
-
-Верни ТОЛЬКО JSON:
-{{
-  "score": <0..10>,
-  "technical_correctness": <0..4>,
-  "depth": <0..4>,
-  "practical_example": <0..4>,
-  "personal_contribution": <0..4>,
-  "scale_and_metrics": <0..4>,
-  "analysis": "<2-4 предложения>",
-  "strengths": ["..."],
-  "weaknesses": ["..."],
-  "covered_must_have": ["..."],
-  "covered_nice_to_have": ["..."],
-  "detected_red_flags": ["..."],
-  "evidence_quotes": ["короткая дословная цитата кандидата"],
-  "confidence": <0..1>
-}}"""
+        input_data = {
+            "question_id": str(question_id or ""),
+            "question": question,
+            "competency": competency or "general",
+            "reference_answer": reference_answer or "",
+            "must_have": list(must_have or []),
+            "nice_to_have": list(nice_to_have or []),
+            "red_flags": list(red_flags or []),
+            "transcript": candidate_transcript or "",
+        }
         try:
-            result = self._parse_json(await self._call_llm([{"role": "user", "content": prompt}], temperature=0.1))
-            result["score"] = max(SCORE_MIN, min(SCORE_MAX, float(result.get("score", 5))))
-            result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0.5))))
-            for field in ("technical_correctness", "depth", "practical_example", "personal_contribution", "scale_and_metrics"):
-                result[field] = max(0, min(4, int(result.get(field, 0))))
-            for field in (
-                "strengths",
-                "weaknesses",
-                "covered_must_have",
-                "covered_nice_to_have",
-                "detected_red_flags",
-                "evidence_quotes",
-            ):
-                if not isinstance(result.get(field), list):
-                    result[field] = []
-            return result
-        except Exception as exc:
-            return {
-                "score": 5.0,
-                "technical_correctness": 0,
-                "depth": 0,
-                "practical_example": 0,
-                "personal_contribution": 0,
-                "scale_and_metrics": 0,
-                "analysis": f"Не удалось надёжно разобрать LLM-оценку: {exc}",
-                "strengths": [],
-                "weaknesses": [],
-                "covered_must_have": [],
-                "covered_nice_to_have": [],
-                "detected_red_flags": [],
-                "evidence_quotes": [],
-                "confidence": 0.0,
+            raw = self._parse_json(await self._call_llm([
+                {"role": "user", "content": self._load_prompt("score_question.md", input_data)}
+            ]))
+            covered = self._subset(raw.get("covered_must_have"), input_data["must_have"])
+            missing = [item for item in input_data["must_have"] if item not in covered]
+            result = {
+                "score_0_10": max(0, min(10, int(round(float(raw.get("score_0_10", 5)))))),
+                "covered_must_have": covered,
+                "missing_must_have": missing,
+                "covered_nice_to_have": self._subset(raw.get("covered_nice_to_have"), input_data["nice_to_have"]),
+                "red_flags_found": self._subset(raw.get("red_flags_found"), input_data["red_flags"]),
+                "evidence_quotes": self._quotes(raw.get("evidence_quotes"), [input_data["transcript"]]),
+                "summary": str(raw.get("summary") or "Оценка требует ручной проверки.").strip(),
+                "confidence_0_1": max(0.0, min(1.0, float(raw.get("confidence_0_1", 0.5)))),
             }
+        except Exception as exc:
+            result = {
+                "score_0_10": 5,
+                "covered_must_have": [],
+                "missing_must_have": list(input_data["must_have"]),
+                "covered_nice_to_have": [],
+                "red_flags_found": [],
+                "evidence_quotes": [],
+                "summary": f"Не удалось надёжно разобрать LLM-оценку; нужна ручная проверка: {exc}",
+                "confidence_0_1": 0.0,
+            }
+
+        # Compatibility aliases for existing report UI/storage while the canonical
+        # schema above remains the single source for scoring semantics.
+        result.update({
+            "score": float(result["score_0_10"]),
+            "analysis": result["summary"],
+            "strengths": result["covered_must_have"] + result["covered_nice_to_have"],
+            "weaknesses": result["missing_must_have"],
+            "detected_red_flags": result["red_flags_found"],
+            "confidence": result["confidence_0_1"],
+        })
+        return result
+
+    @staticmethod
+    def _normalize_competencies(value: Any, transcripts: List[str]) -> List[dict]:
+        result = []
+        if not isinstance(value, list):
+            return result
+        for item in value:
+            if not isinstance(item, dict) or not str(item.get("name", "")).strip():
+                continue
+            status = item.get("status") if item.get("status") in COMPETENCY_STATUSES else "не проверена"
+            try:
+                score = max(0.0, min(10.0, float(item.get("avg_score_0_10", 0))))
+            except (TypeError, ValueError):
+                score = 0.0
+            result.append({
+                "name": str(item["name"]).strip(),
+                "status": status,
+                "avg_score_0_10": round(score, 2),
+                "evidence_quotes": LLMService._quotes(item.get("evidence_quotes"), transcripts),
+                "question_ids": LLMService._strings(item.get("question_ids")),
+            })
+        return result
+
+    @staticmethod
+    def _normalize_coverage(value: Any, transcripts: List[str]) -> dict:
+        source = value if isinstance(value, dict) else {}
+        result = {"must_have": [], "nice_to_have": []}
+        for group in result:
+            items = source.get(group, [])
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict) or not str(item.get("topic", "")).strip():
+                    continue
+                status = item.get("status") if item.get("status") in COVERAGE_STATUSES else "не проверено"
+                result[group].append({
+                    "topic": str(item["topic"]).strip(),
+                    "status": status,
+                    "evidence_quotes": LLMService._quotes(item.get("evidence_quotes"), transcripts),
+                    "question_ids": LLMService._strings(item.get("question_ids")),
+                })
+        return result
+
+    @staticmethod
+    def _normalize_strengths(value: Any, transcripts: List[str]) -> List[dict]:
+        result = []
+        if not isinstance(value, list):
+            return result
+        for item in value:
+            if not isinstance(item, dict) or not str(item.get("point", "")).strip():
+                continue
+            quote = str(item.get("quote", "")).strip()
+            if not quote or not any(quote in (text or "") for text in transcripts):
+                continue
+            result.append({
+                "point": str(item["point"]).strip(),
+                "quote": quote,
+                "question_id": str(item.get("question_id", "")).strip(),
+            })
+        return result
+
+    @staticmethod
+    def _normalize_issues(value: Any, transcripts: List[str]) -> List[dict]:
+        result = []
+        if not isinstance(value, list):
+            return result
+        for item in value:
+            if not isinstance(item, dict) or not str(item.get("point", "")).strip():
+                continue
+            issue_type = item.get("type") if item.get("type") in ISSUE_TYPES else "зона роста"
+            quote = item.get("quote")
+            if quote is not None:
+                quote = str(quote).strip() or None
+                if quote and not any(quote in (text or "") for text in transcripts):
+                    quote = None
+            result.append({
+                "point": str(item["point"]).strip(),
+                "type": issue_type,
+                "quote": quote,
+                "question_id": str(item.get("question_id")).strip() if item.get("question_id") is not None else None,
+            })
+        return result
 
     async def generate_final_report(
         self,
@@ -177,95 +259,93 @@ NICE-TO-HAVE СИГНАЛЫ:
         vacancy_requirements: str,
         answers_data: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        answer_blocks = []
-        numeric_scores = []
-        critical_flags = []
+        normalized_answers = []
+        scores = []
+        transcripts = []
         for index, answer in enumerate(answers_data, 1):
-            if answer.get("score") is not None:
-                numeric_scores.append(float(answer["score"]))
-            critical_flags.extend(answer.get("detected_red_flags", []) or [])
-            answer_blocks.append(
-                f"""Вопрос {index}: {answer.get('question', '')}
-Ответ: {answer.get('transcript', '')}
-Оценка: {answer.get('score', 'N/A')}/10
-Анализ: {answer.get('analysis', '')}
-Сильные стороны: {', '.join(answer.get('strengths', []) or [])}
-Слабые стороны: {', '.join(answer.get('weaknesses', []) or [])}
-Покрытые must-have: {', '.join(answer.get('covered_must_have', []) or [])}
-Red flags: {', '.join(answer.get('detected_red_flags', []) or [])}
----"""
-            )
-
-        base_score = sum(numeric_scores) / len(numeric_scores) if numeric_scores else 5.0
-        prompt = f"""Ты технический эксперт, формирующий ИТОГОВЫЙ ОТЧЕТ после асинхронного интервью.
-
-ВАКАНСИЯ: {vacancy_title}
-
-ИСХОДНЫЙ ТЕКСТ ВАКАНСИИ:
-{vacancy_requirements}
-
-РЕЗУЛЬТАТЫ ОТВЕТОВ:
-{chr(10).join(answer_blocks)}
-
-Средняя числовая оценка ответов, рассчитанная системой: {base_score:.2f}/10.
-
-Правила:
-1. Отчёт должен опираться только на ответы и исходный текст вакансии.
-2. Не превращай отсутствие упоминания навыка в доказательство отсутствия навыка.
-3. Не называй навык подтверждённым, если он не подкреплён ответом.
-4. Разделяй реальные сильные стороны и темы, которые нужно проверить дополнительно.
-5. Не делай выводов по внешности, голосу, акценту или иным нерелевантным признакам.
-6. Итоговая рекомендация — рекомендация AI, а не финальное решение о найме.
-7. overall_score должен быть близок к средней оценке ответов; отклонение больше 1.0 допустимо только при явных технических red flags.
-
-СФОРМИРУЙ итоговый отчет и верни ТОЛЬКО JSON:
-{{
-  "overall_score": <0..10>,
-  "recommendation": "подходит" | "не подходит" | "требуется дополнительная проверка",
-  "summary": "<2-4 предложения>",
-  "strengths": ["..."],
-  "weaknesses": ["..."],
-  "detected_skills": ["только навыки, подтверждённые ответами"],
-  "areas_to_check": ["..."],
-  "risk_factors": ["только риски, имеющие основание в ответах"]
-}}"""
-        try:
-            result = self._parse_json(await self._call_llm([{"role": "user", "content": prompt}], temperature=0.1))
-            model_score = max(0.0, min(10.0, float(result.get("overall_score", base_score))))
-            if not critical_flags and abs(model_score - base_score) > 1.0:
-                model_score = base_score
-            result["overall_score"] = round(model_score, 2)
-
-            # Recommendation is derived deterministically after the LLM has written
-            # the qualitative report. This makes repeated runs more reproducible.
-            if critical_flags or model_score < 5.0:
-                result["recommendation"] = "не подходит"
-            elif model_score >= 7.5:
-                result["recommendation"] = "подходит"
-            else:
-                result["recommendation"] = "требуется дополнительная проверка"
-
-            for field in ("strengths", "weaknesses", "detected_skills", "areas_to_check", "risk_factors"):
-                if not isinstance(result.get(field), list):
-                    result[field] = []
-            return result
-        except Exception as exc:
-            if critical_flags or base_score < 5.0:
-                recommendation = "не подходит"
-            elif base_score >= 7.5:
-                recommendation = "подходит"
-            else:
-                recommendation = "требуется дополнительная проверка"
-            return {
-                "overall_score": round(base_score, 2),
-                "recommendation": recommendation,
-                "summary": f"Числовой результат рассчитан по ответам. Текстовый AI-отчёт не удалось сформировать надёжно: {exc}",
-                "strengths": [],
-                "weaknesses": [],
-                "detected_skills": [],
-                "areas_to_check": ["Проверить ответы вручную"],
-                "risk_factors": critical_flags,
+            score = answer.get("score_0_10", answer.get("score"))
+            if score is not None:
+                try:
+                    scores.append(max(0.0, min(10.0, float(score))))
+                except (TypeError, ValueError):
+                    pass
+            transcript = str(answer.get("transcript") or "")
+            transcripts.append(transcript)
+            evaluation = answer.get("evaluation") if isinstance(answer.get("evaluation"), dict) else {
+                "score_0_10": answer.get("score_0_10", answer.get("score", 5)),
+                "covered_must_have": answer.get("covered_must_have", []),
+                "missing_must_have": answer.get("missing_must_have", answer.get("weaknesses", [])),
+                "covered_nice_to_have": answer.get("covered_nice_to_have", []),
+                "red_flags_found": answer.get("red_flags_found", answer.get("detected_red_flags", [])),
+                "evidence_quotes": answer.get("evidence_quotes", []),
+                "summary": answer.get("summary", answer.get("analysis", "")),
+                "confidence_0_1": answer.get("confidence_0_1", answer.get("confidence", 0.5)),
             }
+            normalized_answers.append({
+                "question_id": str(answer.get("question_id") or index),
+                "question_text": answer.get("question_text", answer.get("question", "")),
+                "competency": answer.get("competency", "general"),
+                "transcript": transcript,
+                "evaluation": evaluation,
+            })
+
+        technical_average = sum(scores) / len(scores) if scores else 5.0
+        input_data = {
+            "vacancy_requirements": vacancy_requirements or vacancy_title,
+            "technical_average_0_10": round(technical_average, 2),
+            "candidate_answers": normalized_answers,
+        }
+        try:
+            raw = self._parse_json(await self._call_llm([
+                {"role": "user", "content": self._load_prompt("score_interview.md", input_data)}
+            ]))
+            try:
+                model_score = max(0.0, min(10.0, float(raw.get("overall_score_0_10", technical_average))))
+            except (TypeError, ValueError):
+                model_score = technical_average
+            if abs(model_score - technical_average) > 1.0:
+                model_score = technical_average
+            confidence = max(0.0, min(1.0, float(raw.get("confidence_0_1", 0.5))))
+            recommendation = raw.get("recommendation") if raw.get("recommendation") in RECOMMENDATIONS else "требуется дополнительная проверка"
+            if confidence < 0.55:
+                recommendation = "требуется дополнительная проверка"
+            result = {
+                "recommendation": recommendation,
+                "overall_score_0_10": round(model_score, 2),
+                "confidence_0_1": confidence,
+                "summary": str(raw.get("summary") or "Недостаточно данных для надёжного итогового вывода.").strip(),
+                "competencies": self._normalize_competencies(raw.get("competencies"), transcripts),
+                "vacancy_coverage": self._normalize_coverage(raw.get("vacancy_coverage"), transcripts),
+                "strengths": self._normalize_strengths(raw.get("strengths"), transcripts),
+                "issues": self._normalize_issues(raw.get("issues"), transcripts),
+                "uncovered_vacancy_topics": self._strings(raw.get("uncovered_vacancy_topics")),
+            }
+        except Exception as exc:
+            result = {
+                "recommendation": "требуется дополнительная проверка",
+                "overall_score_0_10": round(technical_average, 2),
+                "confidence_0_1": 0.0,
+                "summary": f"Числовой результат рассчитан по ответам, но итоговый LLM-отчёт требует ручной проверки: {exc}",
+                "competencies": [],
+                "vacancy_coverage": {"must_have": [], "nice_to_have": []},
+                "strengths": [],
+                "issues": [],
+                "uncovered_vacancy_topics": [],
+            }
+
+        # Storage compatibility: existing DB columns are reused without a destructive
+        # migration, but they now carry the canonical structured evaluation.
+        result.update({
+            "overall_score": result["overall_score_0_10"],
+            "weaknesses": result["issues"],
+            "detected_skills": result["competencies"],
+            "areas_to_check": result["uncovered_vacancy_topics"],
+            "risk_factors": {
+                "confidence_0_1": result["confidence_0_1"],
+                "vacancy_coverage": result["vacancy_coverage"],
+            },
+        })
+        return result
 
     async def extract_tags_from_vacancy(self, description: str, requirements: str) -> List[str]:
         from config import TAGS_KEYWORDS
@@ -297,9 +377,10 @@ Red flags: {', '.join(answer.get('detected_red_flags', []) or [])}
         result = []
         seen = set()
         for _, question in scored:
-            if question["id"] in seen:
+            key = str(question.get("id") or question.get("question"))
+            if key in seen:
                 continue
-            seen.add(question["id"])
+            seen.add(key)
             result.append(question)
             if len(result) >= limit:
                 break
