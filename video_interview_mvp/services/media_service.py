@@ -91,48 +91,56 @@ def normalize_audio(source: Path) -> tuple[Path, Optional[int]]:
 
 
 def normalize_video(source: Path) -> tuple[Path, Optional[int]]:
-    """Remux browser video so the container has duration/cue metadata."""
+    """Create a report-safe video container with reliable duration metadata.
+
+    First try a fast remux (no quality loss). Some MediaRecorder WebM files still
+    have no usable duration after remux; in that case we re-encode once. The
+    second path costs CPU but guarantees a seekable file for the demo/report.
+    """
     if not FFMPEG or not source.exists():
         return source, probe_duration_ms(source)
 
     suffix = source.suffix.lower()
+    target = source.with_name(
+        f"{source.stem}_normalized.mp4" if suffix == ".mp4" else f"{source.stem}_normalized.webm"
+    )
     if suffix == ".mp4":
-        target = source.with_name(f"{source.stem}_normalized.mp4")
-        command = [
-            FFMPEG,
-            "-y",
-            "-i",
-            str(source),
-            "-map",
-            "0",
-            "-c",
-            "copy",
-            "-movflags",
-            "+faststart",
-            str(target),
+        remux = [
+            FFMPEG, "-y", "-i", str(source), "-map", "0", "-c", "copy",
+            "-movflags", "+faststart", str(target),
         ]
     else:
-        target = source.with_name(f"{source.stem}_normalized.webm")
-        command = [
-            FFMPEG,
-            "-y",
-            "-i",
-            str(source),
-            "-map",
-            "0",
-            "-c",
-            "copy",
-            str(target),
+        remux = [FFMPEG, "-y", "-i", str(source), "-map", "0", "-c", "copy", str(target)]
+
+    ok = _run(remux, timeout=120)
+    duration = probe_duration_ms(target) if ok else None
+    if ok and target.exists() and target.stat().st_size > 0 and duration:
+        source.unlink(missing_ok=True)
+        return target, duration
+
+    target.unlink(missing_ok=True)
+    # Fallback re-encode writes a fresh timeline/cues even if the original WebM
+    # did not contain a trustworthy duration field.
+    if suffix == ".mp4":
+        encode = [
+            FFMPEG, "-y", "-i", str(source),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
+            "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", str(target),
         ]
+    else:
+        encode = [
+            FFMPEG, "-y", "-i", str(source),
+            "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "6", "-b:v", "850k",
+            "-c:a", "libopus", "-b:a", "64k", str(target),
+        ]
+    ok = _run(encode, timeout=240)
+    duration = probe_duration_ms(target) if ok else None
+    if ok and target.exists() and target.stat().st_size > 0 and duration:
+        source.unlink(missing_ok=True)
+        return target, duration
 
-    ok = _run(command, timeout=120)
-    if not ok or not target.exists() or target.stat().st_size == 0:
-        target.unlink(missing_ok=True)
-        return source, probe_duration_ms(source)
-
-    duration = probe_duration_ms(target)
-    source.unlink(missing_ok=True)
-    return target, duration
+    target.unlink(missing_ok=True)
+    return source, probe_duration_ms(source)
 
 
 def extract_video_clip(source: Path, target: Path, start_ms: int, end_ms: int) -> tuple[Optional[Path], Optional[int]]:
@@ -145,27 +153,10 @@ def extract_video_clip(source: Path, target: Path, start_ms: int, end_ms: int) -
     target.parent.mkdir(parents=True, exist_ok=True)
     ok = _run(
         [
-            FFMPEG,
-            "-y",
-            "-ss",
-            f"{start_seconds:.3f}",
-            "-i",
-            str(source),
-            "-t",
-            f"{duration_seconds:.3f}",
-            "-c:v",
-            "libvpx-vp9",
-            "-deadline",
-            "realtime",
-            "-cpu-used",
-            "6",
-            "-b:v",
-            "650k",
-            "-c:a",
-            "libopus",
-            "-b:a",
-            "64k",
-            str(target),
+            FFMPEG, "-y", "-ss", f"{start_seconds:.3f}", "-i", str(source),
+            "-t", f"{duration_seconds:.3f}",
+            "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "6", "-b:v", "650k",
+            "-c:a", "libopus", "-b:a", "64k", str(target),
         ],
         timeout=max(45, int(duration_seconds * 4)),
     )
