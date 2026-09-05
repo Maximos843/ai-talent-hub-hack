@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import database
@@ -19,8 +19,10 @@ from config import ANSWER_TIME_LIMIT_SECONDS, MAX_QUESTIONS_PER_INTERVIEW, UPLOA
 from database import (
     Answer,
     FinalReport,
+    InterviewQuestion,
     InterviewSession,
     Question,
+    ReviewDecision,
     SessionQuestion,
     User,
     Vacancy,
@@ -32,10 +34,9 @@ from services import asr_service, llm_service
 BASE_DIR = Path(__file__).parent
 QUESTIONS_FILE = BASE_DIR / "data" / "questions.json"
 
-# Database is intentionally lightweight for the hackathon MVP.
 database.init_db()
 
-app = FastAPI(title="Video Interview MVP", version="1.2.0")
+app = FastAPI(title="Video Interview MVP", version="1.3.1")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -58,12 +59,6 @@ class UserCreate(BaseModel):
 
 
 class VacancyCreate(BaseModel):
-    """Vacancy input.
-
-    The new HR UI sends one raw vacancy text. ``description`` and
-    ``requirements`` stay optional for backward compatibility with the old UI.
-    """
-
     title: str
     vacancy_text: Optional[str] = None
     description: Optional[str] = None
@@ -81,8 +76,32 @@ class TranscriptCorrection(BaseModel):
     corrected_transcript: str
 
 
+class CandidateQuestionCreate(BaseModel):
+    question_text: str
+    competency: Optional[str] = "custom"
+    reference_answer: Optional[str] = ""
+    must_have: List[str] = Field(default_factory=list)
+    nice_to_have: List[str] = Field(default_factory=list)
+    red_flags: List[str] = Field(default_factory=list)
+
+
+class CandidateQuestionUpdate(BaseModel):
+    question_text: Optional[str] = None
+    competency: Optional[str] = None
+    reference_answer: Optional[str] = None
+    must_have: Optional[List[str]] = None
+    nice_to_have: Optional[List[str]] = None
+    red_flags: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+    order_index: Optional[int] = None
+
+
+class ReviewPayload(BaseModel):
+    decision: str
+    comment: Optional[str] = ""
+
+
 def hash_password(password: str) -> str:
-    # MVP only. Replace with bcrypt/argon2 before production use.
     return password
 
 
@@ -118,11 +137,18 @@ def _load_question_bank() -> List[dict]:
         return json.load(file)
 
 
-def _get_accessible_vacancy(
-    vacancy_id: int,
-    current_user: User,
-    db: Session,
-) -> Vacancy:
+def _latest_review(session: InterviewSession, role: str) -> Optional[ReviewDecision]:
+    items = [item for item in (session.review_decisions or []) if item.reviewer_role == role]
+    return items[-1] if items else None
+
+
+def _manager_can_view(session: InterviewSession) -> bool:
+    hr_review = _latest_review(session, "hr")
+    manager_review = _latest_review(session, "hiring_manager")
+    return bool(manager_review or (hr_review and hr_review.decision == "approve"))
+
+
+def _get_accessible_vacancy(vacancy_id: int, current_user: User, db: Session) -> Vacancy:
     query = db.query(Vacancy).filter(Vacancy.id == vacancy_id)
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
@@ -132,17 +158,62 @@ def _get_accessible_vacancy(
     return vacancy
 
 
+def _get_accessible_session(session_id: int, current_user: User, db: Session) -> InterviewSession:
+    query = db.query(InterviewSession).join(Vacancy).filter(InterviewSession.id == session_id)
+    if current_user.role == "hr":
+        query = query.filter(Vacancy.owner_id == current_user.id)
+    session = query.first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Кандидат не найден")
+    if current_user.role == "hiring_manager" and not _manager_can_view(session):
+        raise HTTPException(status_code=404, detail="Кандидат ещё не передан нанимающему менеджеру")
+    return session
+
+
 def _question_counts(vacancy: Vacancy) -> tuple[int, int]:
     questions = vacancy.session_questions or []
     return len(questions), sum(1 for item in questions if item.is_approved)
 
 
+def _review_payload(item: Optional[ReviewDecision]) -> Optional[dict]:
+    if not item:
+        return None
+    reviewer_name = ""
+    if item.reviewer:
+        reviewer_name = item.reviewer.full_name or item.reviewer.username
+    return {
+        "decision": item.decision,
+        "comment": item.comment or "",
+        "reviewer_name": reviewer_name,
+        "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
+    }
+
+
+def _workflow_state(session: InterviewSession) -> str:
+    if session.status not in {"completed", "hr_approved", "hr_rejected", "manager_approved", "manager_rejected"}:
+        return session.status
+    hr_review = _latest_review(session, "hr")
+    manager_review = _latest_review(session, "hiring_manager")
+    if manager_review:
+        return "manager_approved" if manager_review.decision == "approve" else "manager_rejected"
+    if hr_review:
+        if hr_review.decision == "approve":
+            return "awaiting_manager"
+        if hr_review.decision == "reject":
+            return "hr_rejected"
+        return "awaiting_hr"
+    return "awaiting_hr"
+
+
 def _session_payload(session: InterviewSession) -> dict:
     report = session.final_report
+    hr_review = _latest_review(session, "hr")
+    manager_review = _latest_review(session, "hiring_manager")
     return {
         "id": session.id,
         "candidate_name": session.candidate_name,
         "status": session.status,
+        "workflow_state": _workflow_state(session),
         "vacancy_id": session.vacancy_id,
         "vacancy_title": session.vacancy.title if session.vacancy else "",
         "created_at": session.created_at.isoformat() if session.created_at else None,
@@ -152,6 +223,61 @@ def _session_payload(session: InterviewSession) -> dict:
         "report_url": f"/report/{session.id}" if report else None,
         "overall_score": report.overall_score if report else None,
         "recommendation": report.recommendation if report else None,
+        "hr_review": _review_payload(hr_review),
+        "manager_review": _review_payload(manager_review),
+        "question_count": len([q for q in (session.interview_questions or []) if q.is_active]),
+        "questions_customized": bool(session.interview_questions),
+    }
+
+
+def _copy_default_questions_to_session(session: InterviewSession, db: Session) -> None:
+    if session.interview_questions:
+        return
+    default_questions = (
+        db.query(SessionQuestion)
+        .filter(
+            SessionQuestion.vacancy_id == session.vacancy_id,
+            SessionQuestion.is_approved.is_(True),
+        )
+        .order_by(SessionQuestion.order_index, SessionQuestion.id)
+        .all()
+    )
+    for index, item in enumerate(default_questions):
+        if not item.question:
+            continue
+        q = item.question
+        db.add(
+            InterviewQuestion(
+                session_id=session.id,
+                source_session_question_id=item.id,
+                question_text=q.question_text,
+                competency=q.competency or "",
+                reference_answer=q.reference_answer or "",
+                must_have=q.must_have or [],
+                nice_to_have=q.nice_to_have or [],
+                red_flags=q.red_flags or [],
+                order_index=index,
+                is_active=True,
+                is_custom=False,
+            )
+        )
+    db.commit()
+    db.refresh(session)
+
+
+def _candidate_question_payload(question: InterviewQuestion) -> dict:
+    return {
+        "id": question.id,
+        "question": question.question_text,
+        "competency": question.competency or "",
+        "reference_answer": question.reference_answer or "",
+        "must_have": question.must_have or [],
+        "nice_to_have": question.nice_to_have or [],
+        "red_flags": question.red_flags or [],
+        "order_index": question.order_index,
+        "is_active": bool(question.is_active),
+        "is_custom": bool(question.is_custom),
+        "source_session_question_id": question.source_session_question_id,
     }
 
 
@@ -172,15 +298,11 @@ async def register_page(request: Request):
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    # Browser-side Basic Auth is sufficient for the hackathon MVP.
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 
 @app.post("/api/auth/login")
-async def login(
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db),
-):
+async def login(credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == credentials.username).first()
     if not user or user.password_hash != credentials.password:
         raise HTTPException(status_code=401, detail="Неверные учетные данные")
@@ -197,7 +319,6 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Необходимо ввести пригласительный код")
     if user_data.invite_code not in INVITE_CODES[user_data.role]:
         raise HTTPException(status_code=403, detail="Неверный пригласительный код")
-
     user = User(
         username=user_data.username,
         password_hash=hash_password(user_data.password),
@@ -210,24 +331,15 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return {"message": "Пользователь успешно создан", "username": user.username}
 
 
-# ---------------------------------------------------------------------------
-# HR workspace: vacancies, suggested questions and candidates
-# ---------------------------------------------------------------------------
-
 @app.get("/api/vacancies", response_class=JSONResponse)
-async def get_vacancies(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+async def get_vacancies(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(Vacancy)
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
     vacancies = query.order_by(Vacancy.created_at.desc()).all()
-
     result = []
     for vacancy in vacancies:
         questions_count, approved_count = _question_counts(vacancy)
-        completed_count = sum(1 for session in vacancy.interview_sessions if session.status == "completed")
         result.append(
             {
                 "id": vacancy.id,
@@ -237,7 +349,7 @@ async def get_vacancies(
                 "created_at": vacancy.created_at.isoformat() if vacancy.created_at else None,
                 "is_active": vacancy.is_active,
                 "sessions_count": len(vacancy.interview_sessions),
-                "completed_sessions_count": completed_count,
+                "completed_sessions_count": sum(1 for s in vacancy.interview_sessions if s.final_report),
                 "questions_count": questions_count,
                 "approved_questions_count": approved_count,
                 "questions_approved": approved_count > 0,
@@ -254,13 +366,7 @@ async def create_vacancy(
 ):
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR-менеджеры могут создавать вакансии")
-
     title = vacancy_data.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="Укажите название вакансии")
-
-    # New flow: HR pastes the original vacancy as one source text. The old
-    # description/requirements fields are still accepted so existing calls work.
     source_text = (vacancy_data.vacancy_text or "").strip()
     if not source_text:
         source_text = "\n\n".join(
@@ -268,6 +374,8 @@ async def create_vacancy(
             for part in [vacancy_data.description or "", vacancy_data.requirements or ""]
             if part and part.strip()
         ).strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Укажите название вакансии")
     if not source_text:
         raise HTTPException(status_code=400, detail="Вставьте текст вакансии")
 
@@ -275,8 +383,6 @@ async def create_vacancy(
     vacancy = Vacancy(
         title=title,
         description=source_text,
-        # The final evaluator expects requirements. For the raw-text MVP the full
-        # vacancy is the source of truth for both extraction and final evaluation.
         requirements=source_text,
         grade=vacancy_data.grade or "middle",
         detected_tags=detected_tags,
@@ -286,20 +392,15 @@ async def create_vacancy(
     db.commit()
     db.refresh(vacancy)
 
-    question_bank = _load_question_bank()
+    bank = _load_question_bank()
     suggested = await llm_service.suggest_questions_for_vacancy(
         detected_tags=detected_tags,
         grade=vacancy.grade,
-        available_questions=question_bank,
+        available_questions=bank,
         limit=MAX_QUESTIONS_PER_INTERVIEW,
     )
-
-    # A generic fallback keeps the demo usable for a vacancy whose stack is not
-    # fully covered by TAGS_KEYWORDS. It is deliberately a question-bank fallback,
-    # not an invented LLM question, so the rubric/evidence metadata remains stable.
-    if not suggested and question_bank:
-        suggested = question_bank[: min(MAX_QUESTIONS_PER_INTERVIEW, len(question_bank))]
-
+    if not suggested and bank:
+        suggested = bank[: min(MAX_QUESTIONS_PER_INTERVIEW, len(bank))]
     for idx, item in enumerate(suggested):
         question = db.query(Question).filter(Question.question_text == item["question"]).first()
         if not question:
@@ -314,9 +415,6 @@ async def create_vacancy(
             )
             db.add(question)
             db.flush()
-
-        # Suggestions are NOT approved automatically. HR explicitly selects the
-        # final core questions before an invitation can be created.
         db.add(
             SessionQuestion(
                 vacancy_id=vacancy.id,
@@ -326,7 +424,6 @@ async def create_vacancy(
             )
         )
     db.commit()
-
     return {
         "id": vacancy.id,
         "title": vacancy.title,
@@ -343,7 +440,6 @@ async def get_vacancy_details(
     db: Session = Depends(get_db),
 ):
     vacancy = _get_accessible_vacancy(vacancy_id, current_user, db)
-
     session_questions = (
         db.query(SessionQuestion)
         .filter(SessionQuestion.vacancy_id == vacancy_id)
@@ -352,29 +448,27 @@ async def get_vacancy_details(
     )
     questions = []
     for item in session_questions:
-        question = item.question
-        if not question:
-            continue
-        questions.append(
-            {
-                "session_question_id": item.id,
-                "id": question.id,
-                "question": question.question_text,
-                "tags": question.tags or [],
-                "competency": question.competency or "",
-                "must_have": question.must_have or [],
-                "nice_to_have": question.nice_to_have or [],
-                "is_approved": bool(item.is_approved),
-            }
-        )
-
+        q = item.question
+        if q:
+            questions.append(
+                {
+                    "session_question_id": item.id,
+                    "id": q.id,
+                    "question": q.question_text,
+                    "tags": q.tags or [],
+                    "competency": q.competency or "",
+                    "must_have": q.must_have or [],
+                    "nice_to_have": q.nice_to_have or [],
+                    "is_approved": bool(item.is_approved),
+                }
+            )
     sessions = (
         db.query(InterviewSession)
         .filter(InterviewSession.vacancy_id == vacancy_id)
         .order_by(InterviewSession.created_at.desc())
         .all()
     )
-    approved_count = sum(1 for question in questions if question["is_approved"])
+    approved_count = sum(1 for q in questions if q["is_approved"])
     return {
         "id": vacancy.id,
         "title": vacancy.title,
@@ -401,26 +495,23 @@ async def approve_vacancy_questions(
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     _get_accessible_vacancy(vacancy_id, current_user, db)
-
-    session_questions = (
+    items = (
         db.query(SessionQuestion)
         .filter(SessionQuestion.vacancy_id == vacancy_id)
         .order_by(SessionQuestion.order_index, SessionQuestion.id)
         .all()
     )
-    if not session_questions:
+    if not items:
         raise HTTPException(status_code=400, detail="Для вакансии нет предложенных вопросов")
-    if not question_ids:
+    requested = list(dict.fromkeys(question_ids))
+    if not requested:
         raise HTTPException(status_code=400, detail="Выберите хотя бы один вопрос")
-
-    existing_ids = {item.question_id for item in session_questions}
-    requested_ids = list(dict.fromkeys(question_ids))
-    if any(question_id not in existing_ids for question_id in requested_ids):
-        raise HTTPException(status_code=400, detail="В списке есть вопрос, не относящийся к вакансии")
-
-    selected_order = {question_id: index for index, question_id in enumerate(requested_ids)}
-    rejected_index = len(requested_ids)
-    for item in session_questions:
+    existing = {item.question_id for item in items}
+    if any(qid not in existing for qid in requested):
+        raise HTTPException(status_code=400, detail="В списке есть чужой вопрос")
+    selected_order = {qid: idx for idx, qid in enumerate(requested)}
+    rejected_index = len(requested)
+    for item in items:
         item.is_approved = item.question_id in selected_order
         if item.is_approved:
             item.order_index = selected_order[item.question_id]
@@ -428,30 +519,16 @@ async def approve_vacancy_questions(
             item.order_index = rejected_index
             rejected_index += 1
     db.commit()
-
-    return {
-        "message": "Сценарий интервью сохранён",
-        "approved_count": len(requested_ids),
-        "rejected_count": len(session_questions) - len(requested_ids),
-    }
+    return {"message": "Базовый пул вакансии сохранён", "approved_count": len(requested)}
 
 
 @app.get("/api/questions", response_class=JSONResponse)
-async def get_question_bank(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Question bank visible to HR and hiring managers.
-
-    The bank remains JSON-backed for the hackathon: no vector DB or admin CMS is
-    needed. Database ids/usage are added when a bank question has already been used.
-    """
-    question_bank = _load_question_bank()
+async def get_question_bank(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bank = _load_question_bank()
     db_questions = db.query(Question).all()
-    by_text = {question.question_text: question for question in db_questions}
-
+    by_text = {q.question_text: q for q in db_questions}
     result = []
-    for item in question_bank:
+    for item in bank:
         db_question = by_text.get(item.get("question", ""))
         result.append(
             {
@@ -469,15 +546,13 @@ async def get_question_bank(
 
 
 @app.get("/api/candidates", response_class=JSONResponse)
-async def get_candidates(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """All candidates visible in the HR workspace, newest first."""
+async def get_candidates(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     query = db.query(InterviewSession).join(Vacancy)
     if current_user.role == "hr":
         query = query.filter(Vacancy.owner_id == current_user.id)
     sessions = query.order_by(InterviewSession.created_at.desc()).all()
+    if current_user.role == "hiring_manager":
+        sessions = [session for session in sessions if _manager_can_view(session)]
     return [_session_payload(session) for session in sessions]
 
 
@@ -490,82 +565,169 @@ async def create_interview_session(
     if current_user.role != "hr":
         raise HTTPException(status_code=403, detail="Только HR-менеджеры могут создавать интервью")
     vacancy = _get_accessible_vacancy(interview_data.vacancy_id, current_user, db)
-
-    approved_count = (
+    approved = (
         db.query(SessionQuestion)
-        .filter(
-            SessionQuestion.vacancy_id == vacancy.id,
-            SessionQuestion.is_approved.is_(True),
-        )
+        .filter(SessionQuestion.vacancy_id == vacancy.id, SessionQuestion.is_approved.is_(True))
         .count()
     )
-    if approved_count == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Сначала утвердите вопросы для этой вакансии",
-        )
-
-    candidate_name = interview_data.candidate_name.strip()
-    if not candidate_name:
+    if approved == 0:
+        raise HTTPException(status_code=400, detail="Сначала утвердите базовый пул вопросов вакансии")
+    name = interview_data.candidate_name.strip()
+    if not name:
         raise HTTPException(status_code=400, detail="Укажите имя кандидата")
-
     session = InterviewSession(
         vacancy_id=vacancy.id,
-        candidate_name=candidate_name,
+        candidate_name=name,
         session_token=str(uuid.uuid4()),
         status="pending",
     )
     db.add(session)
     db.commit()
     db.refresh(session)
+    _copy_default_questions_to_session(session, db)
     return {
         "session_id": session.id,
         "session_token": session.session_token,
         "interview_url": f"/interview/{session.session_token}",
         "candidate_name": session.candidate_name,
         "vacancy_title": vacancy.title,
+        "question_count": len(session.interview_questions),
     }
 
 
-# ---------------------------------------------------------------------------
-# Candidate interview flow
-# ---------------------------------------------------------------------------
+@app.get("/api/interviews/{session_id}/questions", response_class=JSONResponse)
+async def get_candidate_questions(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может менять вопросы кандидата")
+    session = _get_accessible_session(session_id, current_user, db)
+    _copy_default_questions_to_session(session, db)
+    questions = (
+        db.query(InterviewQuestion)
+        .filter(InterviewQuestion.session_id == session.id)
+        .order_by(InterviewQuestion.order_index, InterviewQuestion.id)
+        .all()
+    )
+    return {
+        "session_id": session.id,
+        "candidate_name": session.candidate_name,
+        "vacancy_title": session.vacancy.title,
+        "editable": not bool(session.started_at),
+        "questions": [_candidate_question_payload(q) for q in questions],
+    }
+
+
+@app.post("/api/interviews/{session_id}/questions", response_class=JSONResponse)
+async def add_candidate_question(
+    session_id: int,
+    payload: CandidateQuestionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может менять вопросы кандидата")
+    session = _get_accessible_session(session_id, current_user, db)
+    if session.started_at:
+        raise HTTPException(status_code=400, detail="Интервью уже началось — набор вопросов зафиксирован")
+    text = payload.question_text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Введите текст вопроса")
+    max_order = max([q.order_index for q in session.interview_questions], default=-1)
+    question = InterviewQuestion(
+        session_id=session.id,
+        source_session_question_id=None,
+        question_text=text,
+        competency=(payload.competency or "custom").strip(),
+        reference_answer=payload.reference_answer or "",
+        must_have=payload.must_have,
+        nice_to_have=payload.nice_to_have,
+        red_flags=payload.red_flags,
+        order_index=max_order + 1,
+        is_active=True,
+        is_custom=True,
+    )
+    db.add(question)
+    db.commit()
+    db.refresh(question)
+    return _candidate_question_payload(question)
+
+
+@app.patch("/api/interviews/{session_id}/questions/{question_id}", response_class=JSONResponse)
+async def update_candidate_question(
+    session_id: int,
+    question_id: int,
+    payload: CandidateQuestionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может менять вопросы кандидата")
+    session = _get_accessible_session(session_id, current_user, db)
+    if session.started_at:
+        raise HTTPException(status_code=400, detail="Интервью уже началось — набор вопросов зафиксирован")
+    question = (
+        db.query(InterviewQuestion)
+        .filter(InterviewQuestion.id == question_id, InterviewQuestion.session_id == session.id)
+        .first()
+    )
+    if not question:
+        raise HTTPException(status_code=404, detail="Вопрос не найден")
+    if payload.question_text is not None:
+        text = payload.question_text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Текст вопроса не может быть пустым")
+        question.question_text = text
+    for field in ("competency", "reference_answer", "must_have", "nice_to_have", "red_flags", "is_active", "order_index"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(question, field, value)
+    db.commit()
+    db.refresh(question)
+    return _candidate_question_payload(question)
+
+
+@app.post("/api/interviews/{session_id}/questions/reset", response_class=JSONResponse)
+async def reset_candidate_questions(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может менять вопросы кандидата")
+    session = _get_accessible_session(session_id, current_user, db)
+    if session.started_at:
+        raise HTTPException(status_code=400, detail="Интервью уже началось — набор вопросов зафиксирован")
+    db.query(InterviewQuestion).filter(InterviewQuestion.session_id == session.id).delete()
+    db.commit()
+    db.refresh(session)
+    _copy_default_questions_to_session(session, db)
+    return {"message": "Набор кандидата сброшен к базовому пулу вакансии"}
+
 
 @app.get("/api/interviews/{session_token}", response_class=JSONResponse)
 async def get_interview_session(session_token: str, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    if session.status == "completed":
+    if session.final_report:
         raise HTTPException(status_code=400, detail="Интервью уже завершено")
-
-    session_questions = (
-        db.query(SessionQuestion)
-        .filter(
-            SessionQuestion.vacancy_id == session.vacancy_id,
-            SessionQuestion.is_approved.is_(True),
-        )
-        .order_by(SessionQuestion.order_index, SessionQuestion.id)
+    _copy_default_questions_to_session(session, db)
+    questions = (
+        db.query(InterviewQuestion)
+        .filter(InterviewQuestion.session_id == session.id, InterviewQuestion.is_active.is_(True))
+        .order_by(InterviewQuestion.order_index, InterviewQuestion.id)
         .all()
     )
-    questions = []
-    for item in session_questions:
-        if item.question:
-            questions.append(
-                {
-                    "session_question_id": item.id,
-                    "question": item.question.question_text,
-                }
-            )
-
     if not questions:
-        raise HTTPException(status_code=400, detail="HR ещё не утвердил вопросы интервью")
-
+        raise HTTPException(status_code=400, detail="HR ещё не настроил вопросы интервью")
     return {
         "session_id": session.id,
         "candidate_name": session.candidate_name,
         "vacancy_title": session.vacancy.title,
-        "questions": questions,
+        "questions": [{"session_question_id": q.id, "question": q.question_text} for q in questions],
         "time_limit": ANSWER_TIME_LIMIT_SECONDS,
     }
 
@@ -575,8 +737,16 @@ async def start_interview(session_token: str, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-    if session.status == "completed":
+    if session.final_report:
         raise HTTPException(status_code=400, detail="Интервью уже завершено")
+    _copy_default_questions_to_session(session, db)
+    active_count = (
+        db.query(InterviewQuestion)
+        .filter(InterviewQuestion.session_id == session.id, InterviewQuestion.is_active.is_(True))
+        .count()
+    )
+    if not active_count:
+        raise HTTPException(status_code=400, detail="Для кандидата нет активных вопросов")
     session.status = "in_progress"
     session.started_at = session.started_at or datetime.utcnow()
     db.commit()
@@ -591,27 +761,20 @@ async def submit_answer(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
 ):
-    """Store one answer audio and return its ASR transcript.
-
-    The endpoint works without API keys: ASRService returns a mock transcript when
-    DEEPGRAM_API_KEY is absent, so the complete UI flow stays testable locally.
-    """
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-
-    session_question = (
-        db.query(SessionQuestion)
+    interview_question = (
+        db.query(InterviewQuestion)
         .filter(
-            SessionQuestion.id == question_id,
-            SessionQuestion.vacancy_id == session.vacancy_id,
-            SessionQuestion.is_approved.is_(True),
+            InterviewQuestion.id == question_id,
+            InterviewQuestion.session_id == session.id,
+            InterviewQuestion.is_active.is_(True),
         )
         .first()
     )
-    if not session_question:
+    if not interview_question:
         raise HTTPException(status_code=404, detail="Вопрос не найден")
-    question = session_question.question
 
     audio_path = None
     file_bytes = b""
@@ -633,15 +796,12 @@ async def submit_answer(
             raw_transcript = asr_result["transcript"].strip()
             asr_confidence = asr_result.get("confidence")
         elif not raw_transcript:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Не удалось распознать речь: {asr_result.get('error', 'ASR error')}",
-            )
+            raise HTTPException(status_code=502, detail=f"Не удалось распознать речь: {asr_result.get('error', 'ASR error')}")
 
     answer = Answer(
         session_id=session_id,
-        session_question_id=question_id,
-        question_text=question.question_text,
+        session_question_id=interview_question.source_session_question_id,
+        question_text=interview_question.question_text,
         video_path=None,
         audio_path=audio_path,
         transcript_raw=raw_transcript,
@@ -651,7 +811,6 @@ async def submit_answer(
     db.add(answer)
     db.commit()
     db.refresh(answer)
-
     return {
         "answer_id": answer.id,
         "message": "Ответ сохранён",
@@ -665,17 +824,34 @@ async def analyze_answer(answer_id: int, db: Session) -> None:
     answer = db.query(Answer).filter(Answer.id == answer_id).first()
     if not answer:
         return
-    session_question = db.query(SessionQuestion).filter(SessionQuestion.id == answer.session_question_id).first()
-    if not session_question or not session_question.question:
-        return
-    question = session_question.question
-
+    iq = (
+        db.query(InterviewQuestion)
+        .filter(
+            InterviewQuestion.session_id == answer.session_id,
+            InterviewQuestion.question_text == answer.question_text,
+        )
+        .first()
+    )
+    if iq:
+        question_text = iq.question_text
+        reference_answer = iq.reference_answer or ""
+        must_have = iq.must_have or []
+        nice_to_have = iq.nice_to_have or []
+        red_flags = iq.red_flags or []
+    else:
+        sq = db.query(SessionQuestion).filter(SessionQuestion.id == answer.session_question_id).first()
+        q = sq.question if sq else None
+        question_text = answer.question_text or (q.question_text if q else "")
+        reference_answer = q.reference_answer if q else ""
+        must_have = q.must_have if q else []
+        nice_to_have = q.nice_to_have if q else []
+        red_flags = q.red_flags if q else []
     analysis = await llm_service.analyze_answer(
-        question=question.question_text,
-        reference_answer=question.reference_answer or "",
-        must_have=question.must_have or [],
-        nice_to_have=question.nice_to_have or [],
-        red_flags=question.red_flags or [],
+        question=question_text,
+        reference_answer=reference_answer or "",
+        must_have=must_have or [],
+        nice_to_have=nice_to_have or [],
+        red_flags=red_flags or [],
         candidate_transcript=answer.transcript_corrected or answer.transcript_raw or "",
     )
     answer.score = analysis.get("score", 5.0)
@@ -688,11 +864,9 @@ async def correct_transcript(payload: TranscriptCorrection, db: Session = Depend
     answer = db.query(Answer).filter(Answer.id == payload.answer_id).first()
     if not answer:
         raise HTTPException(status_code=404, detail="Ответ не найден")
-
     corrected = payload.corrected_transcript.strip()
     if not corrected:
         raise HTTPException(status_code=400, detail="Транскрипция не может быть пустой")
-
     answer.transcript_corrected = corrected
     answer.is_approved_by_candidate = True
     db.commit()
@@ -709,7 +883,6 @@ async def upload_full_interview_video(
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Получена пустая видеозапись")
@@ -717,11 +890,7 @@ async def upload_full_interview_video(
     filename = f"full_interview_{session_id}{extension}"
     destination = UPLOAD_DIR / filename
     destination.write_bytes(content)
-    return {
-        "message": "Полная видеозапись сохранена",
-        "video_path": f"/uploads/{filename}",
-        "size_bytes": len(content),
-    }
+    return {"message": "Полная видеозапись сохранена", "video_path": f"/uploads/{filename}", "size_bytes": len(content)}
 
 
 @app.post("/api/interviews/{session_id}/complete", response_class=JSONResponse)
@@ -729,15 +898,12 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
-
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
     if not answers:
         raise HTTPException(status_code=400, detail="Нельзя завершить интервью без ответов")
-
     for answer in answers:
         if answer.score is None and (answer.transcript_corrected or answer.transcript_raw):
             await analyze_answer(answer.id, db)
-
     answers_data = [
         {
             "question": answer.question_text,
@@ -746,6 +912,8 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
             "analysis": (answer.llm_analysis or {}).get("analysis", ""),
             "strengths": (answer.llm_analysis or {}).get("strengths", []),
             "weaknesses": (answer.llm_analysis or {}).get("weaknesses", []),
+            "covered_must_have": (answer.llm_analysis or {}).get("covered_must_have", []),
+            "detected_red_flags": (answer.llm_analysis or {}).get("detected_red_flags", []),
         }
         for answer in answers
     ]
@@ -754,12 +922,10 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
         vacancy_requirements=session.vacancy.requirements or session.vacancy.description or "",
         answers_data=answers_data,
     )
-
     final_report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
     if not final_report:
         final_report = FinalReport(session_id=session_id)
         db.add(final_report)
-
     final_report.overall_score = report_data.get("overall_score", 5.0)
     final_report.recommendation = report_data.get("recommendation", "требуется дополнительная проверка")
     final_report.summary = report_data.get("summary", "")
@@ -768,7 +934,7 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     final_report.detected_skills = report_data.get("detected_skills", [])
     final_report.areas_to_check = report_data.get("areas_to_check", [])
     final_report.risk_factors = report_data.get("risk_factors", [])
-
+    final_report.generated_at = datetime.utcnow()
     session.status = "completed"
     session.completed_at = datetime.utcnow()
     db.commit()
@@ -776,9 +942,70 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     return {"message": "Интервью завершено, отчёт сгенерирован", "report_id": final_report.id}
 
 
-# ---------------------------------------------------------------------------
-# Reports
-# ---------------------------------------------------------------------------
+@app.post("/api/reviews/{session_id}/hr", response_class=JSONResponse)
+async def hr_review(
+    session_id: int,
+    payload: ReviewPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hr":
+        raise HTTPException(status_code=403, detail="Только HR может выполнить первый аппрув")
+    session = _get_accessible_session(session_id, current_user, db)
+    if not session.final_report:
+        raise HTTPException(status_code=400, detail="Сначала должно завершиться интервью и сформироваться отчёт")
+    if _latest_review(session, "hiring_manager"):
+        raise HTTPException(status_code=400, detail="Финальное решение менеджера уже принято и не может быть переопределено HR")
+    if payload.decision not in {"approve", "reject", "needs_review"}:
+        raise HTTPException(status_code=400, detail="Неизвестное решение")
+    db.add(
+        ReviewDecision(
+            session_id=session.id,
+            reviewer_id=current_user.id,
+            reviewer_role="hr",
+            decision=payload.decision,
+            comment=(payload.comment or "").strip(),
+        )
+    )
+    session.status = "hr_approved" if payload.decision == "approve" else "hr_rejected" if payload.decision == "reject" else "completed"
+    db.commit()
+    db.refresh(session)
+    return {"message": "Решение HR сохранено", "workflow_state": _workflow_state(session)}
+
+
+@app.post("/api/reviews/{session_id}/manager", response_class=JSONResponse)
+async def manager_review(
+    session_id: int,
+    payload: ReviewPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.role != "hiring_manager":
+        raise HTTPException(status_code=403, detail="Финальное решение доступно только нанимающему менеджеру")
+    session = _get_accessible_session(session_id, current_user, db)
+    if not session.final_report:
+        raise HTTPException(status_code=400, detail="Отчёт ещё не готов")
+    hr_decision = _latest_review(session, "hr")
+    if not hr_decision or hr_decision.decision != "approve":
+        raise HTTPException(status_code=400, detail="Сначала HR должен одобрить кандидата")
+    if _latest_review(session, "hiring_manager"):
+        raise HTTPException(status_code=400, detail="Финальное решение уже принято")
+    if payload.decision not in {"approve", "reject"}:
+        raise HTTPException(status_code=400, detail="Менеджер должен выбрать финально: одобрить или отклонить")
+    db.add(
+        ReviewDecision(
+            session_id=session.id,
+            reviewer_id=current_user.id,
+            reviewer_role="hiring_manager",
+            decision=payload.decision,
+            comment=(payload.comment or "").strip(),
+        )
+    )
+    session.status = "manager_approved" if payload.decision == "approve" else "manager_rejected"
+    db.commit()
+    db.refresh(session)
+    return {"message": "Финальное решение сохранено", "workflow_state": _workflow_state(session)}
+
 
 @app.get("/api/reports/{session_id}", response_class=JSONResponse)
 async def get_report(
@@ -786,13 +1013,10 @@ async def get_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
+    session = _get_accessible_session(session_id, current_user, db)
+    report = session.final_report
     if not report:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
-
-    if current_user.role == "hr" and report.interview_session.vacancy.owner_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Отчёт не найден")
-
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
     full_video = None
     for extension in ("webm", "mp4"):
@@ -800,12 +1024,12 @@ async def get_report(
         if candidate.exists():
             full_video = f"/uploads/{candidate.name}"
             break
-
     return {
         "id": report.id,
         "session_id": report.session_id,
-        "candidate_name": report.interview_session.candidate_name,
-        "vacancy_title": report.interview_session.vacancy.title,
+        "candidate_name": session.candidate_name,
+        "vacancy_title": session.vacancy.title,
+        "vacancy_text": session.vacancy.description or "",
         "overall_score": report.overall_score,
         "recommendation": report.recommendation,
         "summary": report.summary,
@@ -828,6 +1052,10 @@ async def get_report(
             for answer in answers
         ],
         "generated_at": report.generated_at.isoformat() if report.generated_at else None,
+        "workflow_state": _workflow_state(session),
+        "hr_review": _review_payload(_latest_review(session, "hr")),
+        "manager_review": _review_payload(_latest_review(session, "hiring_manager")),
+        "viewer_role": current_user.role,
     }
 
 
@@ -849,20 +1077,15 @@ async def interview_page(session_token: str, request: Request, db: Session = Dep
 
 @app.get("/report/{session_id}", response_class=HTMLResponse)
 async def report_page(session_id: int, request: Request, db: Session = Depends(get_db)):
-    report = db.query(FinalReport).filter(FinalReport.session_id == session_id).first()
-    if not report:
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session or not session.final_report:
         raise HTTPException(status_code=404, detail="Отчёт не найден")
-    return templates.TemplateResponse(
-        "report.html",
-        {"request": request, "report": report, "session_id": session_id},
-    )
+    return templates.TemplateResponse("report.html", {"request": request, "session_id": session_id})
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    # HTTPS certificates are optional. Localhost works with getUserMedia over HTTP;
-    # remote deployments should terminate TLS in a reverse proxy or provide certs.
     key_path = BASE_DIR / "key.pem"
     cert_path = BASE_DIR / "cert.pem"
     kwargs = {"host": "0.0.0.0", "port": 8000}

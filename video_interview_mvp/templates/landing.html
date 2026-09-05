@@ -1,184 +1,19 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Interview - Будущее найма IT-специалистов</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .gradient-text {
-            background: linear-gradient(90deg, #4F46E5, #06B6D4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .hero-bg {
-            background: radial-gradient(circle at top right, #eef2ff 0%, #ffffff 40%);
-        }
-        .feature-card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-        }
-        .step-circle {
-            background: linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%);
-        }
-        @keyframes blob {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(30px, -50px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
-        }
-        .animate-blob {
-            animation: blob 7s infinite;
-        }
-        .animation-delay-2000 {
-            animation-delay: 2s;
-        }
-    </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#f7f7fb">
+<title>Talent Interview — технические интервью без синхронного созвона</title>
+<script src="https://cdn.tailwindcss.com"></script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>body{font-family:Inter,sans-serif;background:#f8f8fb;color:#171827}.mesh{background:radial-gradient(circle at 15% 15%,rgba(109,93,252,.12),transparent 32%),radial-gradient(circle at 82% 12%,rgba(62,190,177,.11),transparent 28%),#f8f8fb}.glass{background:rgba(255,255,255,.78);backdrop-filter:blur(18px);border:1px solid rgba(231,231,239,.9)}.shadow-soft{box-shadow:0 24px 70px rgba(38,33,79,.10)}.tag{display:inline-flex;padding:7px 11px;border-radius:999px;background:#efedff;color:#5d4fe1;font-size:12px;font-weight:800}.flow-line{height:2px;background:linear-gradient(90deg,#6d5dfc,#42bdb1)}.hover-card{transition:.2s}.hover-card:hover{transform:translateY(-3px);box-shadow:0 18px 50px rgba(38,33,79,.09)}</style>
 </head>
-<body class="bg-gray-50 text-gray-800 antialiased">
-
-    <!-- Navbar -->
-    <nav class="w-full py-6 px-6 md:px-12 flex justify-between items-center max-w-7xl mx-auto">
-        <div class="text-2xl font-bold tracking-tight text-indigo-600">AI Interview<span class="text-gray-900">.io</span></div>
-        <div class="space-x-4">
-            <a href="/login" class="text-gray-600 hover:text-indigo-600 font-medium transition">Войти</a>
-            <a href="/register" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium transition shadow-lg shadow-indigo-200">Попробовать бесплатно</a>
-        </div>
-    </nav>
-
-    <!-- Hero Section -->
-    <header class="hero-bg pt-16 pb-24 px-6">
-        <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
-            <div>
-                <div class="inline-block bg-indigo-50 text-indigo-700 px-4 py-1.5 rounded-full text-sm font-semibold mb-6 border border-indigo-100">
-                    🚀 Революция в техническом найме
-                </div>
-                <h1 class="text-5xl md:text-6xl font-bold leading-tight mb-6 text-gray-900">
-                    Наймите лучших <br>
-                    <span class="gradient-text">без часовых интервью</span>
-                </h1>
-                <p class="text-xl text-gray-600 mb-8 leading-relaxed">
-                    Асинхронные видеоинтервью с искусственным интеллектом. 
-                    Экономьте до 80% времени рекрутеров и получайте объективную оценку навыков кандидата за 15 минут.
-                </p>
-                <div class="flex flex-col sm:flex-row gap-4">
-                    <a href="/register" class="bg-indigo-600 hover:bg-indigo-700 text-white text-lg px-8 py-4 rounded-xl font-bold transition shadow-xl shadow-indigo-200 text-center">
-                        Создать первое интервью
-                    </a>
-                    <a href="#how-it-works" class="bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 text-lg px-8 py-4 rounded-xl font-bold transition text-center">
-                        Как это работает?
-                    </a>
-                </div>
-                <p class="mt-6 text-sm text-gray-500">
-                    ✅ Не требует установки • ✅ Мгновенный старт • ✅ Безопасно
-                </p>
-            </div>
-            
-            <!-- Abstract Visual -->
-            <div class="relative hidden md:block">
-                <div class="absolute -top-10 -right-10 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-                <div class="absolute -bottom-10 -left-10 w-72 h-72 bg-cyan-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-                <div class="relative bg-white p-6 rounded-2xl shadow-2xl border border-gray-100 transform rotate-3 hover:rotate-0 transition duration-500">
-                    <div class="flex items-center space-x-4 mb-4 border-b pb-4">
-                        <div class="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center text-2xl">👨‍💻</div>
-                        <div>
-                            <div class="font-bold text-gray-900">Кандидат: Алексей П.</div>
-                            <div class="text-sm text-gray-500">Senior Python Developer</div>
-                        </div>
-                        <div class="ml-auto text-green-500 font-bold">92/100</div>
-                    </div>
-                    <div class="space-y-3">
-                        <div class="flex items-start space-x-3">
-                            <div class="w-2 h-2 mt-2 bg-green-500 rounded-full"></div>
-                            <p class="text-sm text-gray-600"><strong class="text-gray-900">CI/CD:</strong> Отлично описал процесс Blue-Green деплоя.</p>
-                        </div>
-                        <div class="flex items-start space-x-3">
-                            <div class="w-2 h-2 mt-2 bg-green-500 rounded-full"></div>
-                            <p class="text-sm text-gray-600"><strong class="text-gray-900">Docker:</strong> Глубокое понимание multi-stage сборок.</p>
-                        </div>
-                        <div class="flex items-start space-x-3">
-                            <div class="w-2 h-2 mt-2 bg-yellow-500 rounded-full"></div>
-                            <p class="text-sm text-gray-600"><strong class="text-gray-900">Архитектура:</strong> Требует уточнения по микросервисам.</p>
-                        </div>
-                    </div>
-                    <div class="mt-6 pt-4 border-t flex justify-between items-center">
-                        <span class="text-xs text-gray-400">Анализ завершен за 45 сек</span>
-                        <button class="text-indigo-600 text-sm font-bold hover:underline">Посмотреть отчет →</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <!-- How it works -->
-    <section id="how-it-works" class="py-20 bg-white">
-        <div class="max-w-7xl mx-auto px-6">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Как это работает?</h2>
-                <p class="text-lg text-gray-600">Три простых шага от вакансии до найма</p>
-            </div>
-
-            <div class="grid md:grid-cols-3 gap-10">
-                <!-- Step 1 -->
-                <div class="feature-card bg-gray-50 p-8 rounded-2xl relative overflow-hidden">
-                    <div class="step-circle w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl mb-6 shadow-lg">1</div>
-                    <h3 class="text-xl font-bold mb-3 text-gray-900">Загрузка вакансии</h3>
-                    <p class="text-gray-600 leading-relaxed">
-                        HR загружает описание позиции. ИИ автоматически подбирает релевантные технические вопросы из базы знаний и формирует сценарий интервью.
-                    </p>
-                </div>
-
-                <!-- Step 2 -->
-                <div class="feature-card bg-gray-50 p-8 rounded-2xl relative overflow-hidden">
-                    <div class="step-circle w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl mb-6 shadow-lg">2</div>
-                    <h3 class="text-xl font-bold mb-3 text-gray-900">Асинхронное интервью</h3>
-                    <p class="text-gray-600 leading-relaxed">
-                        Кандидат получает ссылку, проходит интервью в удобное время. Камера и микрофон записывают ответы, ИИ озвучивает вопросы.
-                    </p>
-                </div>
-
-                <!-- Step 3 -->
-                <div class="feature-card bg-gray-50 p-8 rounded-2xl relative overflow-hidden">
-                    <div class="step-circle w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl mb-6 shadow-lg">3</div>
-                    <h3 class="text-xl font-bold mb-3 text-gray-900">Мгновенный результат</h3>
-                    <p class="text-gray-600 leading-relaxed">
-                        Система транскрибирует ответы, оценивает навыки по критериям и формирует подробный отчет с рекомендациями для нанимающего менеджера.
-                    </p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- CTA Section -->
-    <section class="py-20 bg-indigo-900 text-white">
-        <div class="max-w-4xl mx-auto px-6 text-center">
-            <h2 class="text-3xl md:text-4xl font-bold mb-6">Готовы ускорить свой найм?</h2>
-            <p class="text-indigo-200 text-lg mb-10">
-                Присоединяйтесь к компаниям, которые уже используют AI для оценки технических специалистов.
-            </p>
-            <a href="/register" class="inline-block bg-white text-indigo-900 text-lg px-10 py-4 rounded-xl font-bold hover:bg-gray-100 transition shadow-lg">
-                Начать бесплатно
-            </a>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="bg-gray-900 text-gray-400 py-12 border-t border-gray-800">
-        <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center">
-            <div class="mb-4 md:mb-0">
-                <span class="text-white font-bold text-lg">AI Interview.io</span>
-                <p class="text-sm mt-2">© 2024 Все права защищены.</p>
-            </div>
-            <div class="flex space-x-6 text-sm">
-                <a href="#" class="hover:text-white transition">Политика конфиденциальности</a>
-                <a href="#" class="hover:text-white transition">Условия использования</a>
-            </div>
-        </div>
-    </footer>
-
-</body>
-</html>
+<body>
+<div class="mesh min-h-screen">
+<nav class="max-w-7xl mx-auto px-5 lg:px-8 h-20 flex items-center justify-between"><a href="/" class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-indigo-600 text-white grid place-items-center font-extrabold">AI</div><div><div class="font-extrabold tracking-tight">Talent Interview</div><div class="text-xs text-gray-400">evidence-based hiring</div></div></a><div class="flex items-center gap-3"><a href="/login" class="px-4 py-2.5 text-sm font-bold text-gray-600 hover:text-indigo-600">Войти</a><a href="/register" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-100">Создать workspace</a></div></nav>
+<header class="max-w-7xl mx-auto px-5 lg:px-8 pt-16 pb-24 grid lg:grid-cols-[1.02fr_.98fr] gap-14 items-center"><div><span class="tag">Асинхронные технические интервью</span><h1 class="text-5xl md:text-7xl font-extrabold tracking-[-.055em] leading-[1.02] mt-6">Технический скрининг, который можно <span class="text-indigo-600">проверить</span></h1><p class="text-lg md:text-xl text-gray-500 leading-8 mt-6 max-w-2xl">Вакансия превращается в сценарий интервью, кандидат отвечает на видео, AI формирует доказательный отчёт, а решение проходит человеческий review: HR → нанимающий менеджер.</p><div class="flex flex-col sm:flex-row gap-3 mt-8"><a href="/register" class="px-6 py-4 bg-indigo-600 text-white rounded-2xl text-center font-extrabold shadow-xl shadow-indigo-100">Запустить первое интервью →</a><a href="#workflow" class="px-6 py-4 bg-white border border-gray-200 rounded-2xl text-center font-bold text-gray-700">Посмотреть процесс</a></div><div class="flex flex-wrap gap-x-6 gap-y-3 mt-8 text-sm text-gray-500"><span>✓ Общий пул вопросов по вакансии</span><span>✓ Индивидуальные вопросы кандидата</span><span>✓ Human-in-the-loop approval</span></div></div>
+<div class="glass shadow-soft rounded-[30px] p-5 md:p-7"><div class="flex items-center justify-between"><div><div class="text-xs font-extrabold text-indigo-600">КАНДИДАТ</div><div class="font-extrabold text-xl mt-1">Алексей Петров</div><div class="text-sm text-gray-400 mt-1">Middle+ Python Developer</div></div><div class="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 grid place-items-center text-xl font-extrabold">7.8</div></div><div class="grid grid-cols-2 gap-3 mt-6"><div class="bg-white rounded-2xl p-4 border"><div class="text-xs text-gray-400">Подтверждено</div><div class="font-bold mt-2">Kafka · PostgreSQL · AsyncIO</div></div><div class="bg-white rounded-2xl p-4 border"><div class="text-xs text-gray-400">Проверить дальше</div><div class="font-bold mt-2">Scale · ownership</div></div></div><div class="mt-5 p-4 bg-white rounded-2xl border"><div class="text-xs font-extrabold text-gray-400">EVIDENCE</div><div class="text-sm text-gray-700 leading-6 mt-2">«Использовали transactional outbox, consumer подтверждал обработку после записи состояния…»</div></div><div class="mt-5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-4 items-center"><div class="w-8 h-8 rounded-xl bg-green-100 text-green-700 grid place-items-center font-bold">✓</div><div><div class="text-sm font-bold">HR review</div><div class="text-xs text-gray-400">Одобрено и передано менеджеру</div></div><div class="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 grid place-items-center font-bold">2</div><div><div class="text-sm font-bold">Hiring manager</div><div class="text-xs text-gray-400">Финальное решение</div></div></div></div></header>
+</div>
+<section id="workflow" class="bg-white py-24"><div class="max-w-7xl mx-auto px-5 lg:px-8"><div class="max-w-2xl"><div class="text-xs font-extrabold text-indigo-600">WORKFLOW</div><h2 class="text-4xl md:text-5xl font-extrabold tracking-[-.04em] mt-3">От текста вакансии до финального решения</h2><p class="text-gray-500 text-lg mt-4 leading-8">Без сложной настройки и без попытки заменить человека одним AI-скорингом.</p></div><div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4 mt-12"><div class="hover-card border rounded-3xl p-6"><div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center font-extrabold">1</div><h3 class="font-extrabold text-lg mt-5">Вакансия</h3><p class="text-sm text-gray-500 leading-6 mt-2">HR вставляет вакансию целиком. Система определяет стек и предлагает базовый пул вопросов.</p></div><div class="hover-card border rounded-3xl p-6"><div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center font-extrabold">2</div><h3 class="font-extrabold text-lg mt-5">Сценарий</h3><p class="text-sm text-gray-500 leading-6 mt-2">HR утверждает общий пул и при необходимости персонализирует вопросы для конкретного кандидата.</p></div><div class="hover-card border rounded-3xl p-6"><div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center font-extrabold">3</div><h3 class="font-extrabold text-lg mt-5">Интервью</h3><p class="text-sm text-gray-500 leading-6 mt-2">Кандидат проходит интерактивное видеоинтервью, проверяет транскрипцию и подтверждает ответы.</p></div><div class="hover-card border rounded-3xl p-6"><div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center font-extrabold">4</div><h3 class="font-extrabold text-lg mt-5">Решение</h3><p class="text-sm text-gray-500 leading-6 mt-2">AI формирует evidence-based отчёт. HR делает первый review, менеджер — финальный аппрув.</p></div></div></div></section>
+<section class="py-24 bg-[#191927] text-white"><div class="max-w-7xl mx-auto px-5 lg:px-8 grid lg:grid-cols-2 gap-14 items-center"><div><div class="text-xs font-extrabold text-indigo-300">НЕ ПРОСТО SCORE</div><h2 class="text-4xl md:text-5xl font-extrabold tracking-[-.04em] mt-3">Решение видно до уровня конкретного ответа</h2><p class="text-gray-300 text-lg leading-8 mt-5">Отчёт хранит исправленную кандидатом транскрипцию, исходный ASR, запись ответа, критерии оценки, сильные и слабые стороны и короткие evidence-фрагменты.</p></div><div class="grid sm:grid-cols-2 gap-3"><div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-2xl">◉</div><div class="font-bold mt-3">Видео отдельно</div><div class="text-sm text-gray-400 mt-2">Не используем внешность, голос или акцент для технического скоринга.</div></div><div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-2xl">≋</div><div class="font-bold mt-3">Evidence first</div><div class="text-sm text-gray-400 mt-2">Существенные выводы опираются на содержание ответов кандидата.</div></div><div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-2xl">↳</div><div class="font-bold mt-3">Два review-этапа</div><div class="text-sm text-gray-400 mt-2">AI рекомендует, HR проверяет, менеджер принимает финальное решение.</div></div><div class="bg-white/5 border border-white/10 rounded-2xl p-5"><div class="text-2xl">✎</div><div class="font-bold mt-3">Гибкие вопросы</div><div class="text-sm text-gray-400 mt-2">Общий пул вакансии плюс индивидуальные изменения до старта интервью.</div></div></div></div></section>
+<section class="py-24"><div class="max-w-4xl mx-auto px-5 text-center"><h2 class="text-4xl md:text-5xl font-extrabold tracking-[-.04em]">Соберите первый сценарий за несколько минут</h2><p class="text-gray-500 text-lg mt-4">Для MVP достаточно текста вакансии и кандидата. Остальное можно уточнять по мере необходимости.</p><a href="/register" class="inline-flex mt-8 px-7 py-4 bg-indigo-600 text-white rounded-2xl font-extrabold shadow-xl shadow-indigo-100">Открыть Talent Interview →</a></div></section>
+<footer class="border-t bg-white"><div class="max-w-7xl mx-auto px-5 lg:px-8 py-8 flex flex-col md:flex-row justify-between gap-4 text-sm text-gray-400"><div><b class="text-gray-700">Talent Interview</b> · AI-assisted technical screening</div><div>AI recommendation + human decision</div></div></footer>
+</body></html>
