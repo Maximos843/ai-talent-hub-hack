@@ -31,7 +31,12 @@ jobs:
           assert "/api/auth/login" in paths
           assert "/api/auth/bootstrap-status" in paths
           assert "/dashboard" in paths
-          print("main:app OK")
+          legacy = main._legacy_app
+          pairs = [(route.path, route.methods or set()) for route in legacy.routes if hasattr(route, "path")]
+          assert sum(path == "/api/questions" and "GET" in methods for path, methods in pairs) == 1
+          assert sum(path == "/api/interviews/{session_id}/complete" and "POST" in methods for path, methods in pairs) == 1
+          assert sum(path == "/api/reports/{session_id}" and "GET" in methods for path, methods in pairs) == 1
+          print("main:app + canonical business routes OK")
           PY
       - run: python -m unittest discover -s tests -v
       - name: Check browser scripts syntax
@@ -39,3 +44,5 @@ jobs:
           node --check static/proctor.js
           node --check static/session_bridge.js
           node --check static/mediapipe_proctor.js
+          node --check static/question_bank_ui.js
+          node --check static/scoring_report_ui.js
