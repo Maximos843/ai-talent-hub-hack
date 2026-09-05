@@ -1,171 +1,125 @@
 # 🎥 AI Video Interview Platform
 
-Платформа для асинхронных видеоинтервью с ИИ-анализом ответов кандидатов.
+Асинхронные технические видеоинтервью: vacancy → question pool → candidate interview → transcript/evidence → AI report → HR review → hiring-manager final decision.
 
-## 🚀 Быстрый старт
-
-### Вариант 1: Docker (рекомендуется)
+## Быстрый старт
 
 ```bash
-# Скопируйте файл конфигурации
 cp .env.example .env
-
-# Отредактируйте .env при необходимости (опционально)
-# Для демо-режима можно оставить пустым
-
-# Запустите сервис
-docker-compose up --build
+docker compose up --build
 ```
 
-Сервис доступен по адресу: http://localhost:8000
+Откройте `http://localhost:8000`.
 
-### Вариант 2: Локальный запуск
+Без LLM/Deepgram ключей приложение остаётся проходимым в mock-режиме.
+
+Для локального запуска без Docker:
 
 ```bash
-# Установка зависимостей
 pip install -r requirements.txt
-
-# Создание файла окружения
-cp .env.example .env
-
-# Запуск сервера
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-## 🔐 Доступ к системе
+> Запускайте именно `app:app`: это gateway с новой авторизацией и прокторингом. `main.py` остаётся business-layer приложения и монтируется внутрь gateway.
 
-### Токены приглашения (по умолчанию)
+## Авторизация в MVP
 
-Для регистрации новых пользователей необходимы токены приглашения:
+Общих `HR_INVITE_TOKEN` / `MANAGER_INVITE_TOKEN` больше нет.
 
-| Роль | Токен по умолчанию |
-|------|-------------------|
-| HR / Рекрутер | `hr_master_key_2024` |
-| Нанимающий менеджер | `manager_master_key_2024` |
+1. На пустой базе первый зарегистрированный пользователь становится HR-владельцем workspace.
+2. После этого свободная регистрация закрывается.
+3. HR в workspace нажимает **«Пригласить коллегу»** и выбирает роль.
+4. Backend создаёт случайную одноразовую ссылку, действующую 48 часов.
+5. Роль зафиксирована в invitation record и не выбирается приглашённым пользователем.
 
-**Важно:** В production измените токены в файле `.env`:
-```
-HR_INVITE_TOKEN=your_secure_hr_token
-MANAGER_INVITE_TOKEN=your_secure_manager_token
-```
+После login backend создаёт случайный opaque session token. В SQLite хранится только его SHA-256 hash, а браузер получает token через `HttpOnly + SameSite=Lax` cookie. Пароль не попадает в `localStorage` или JavaScript.
 
-### Первый вход
+Пароли хранятся как `PBKDF2-HMAC-SHA256` с индивидуальной солью. Старые plaintext-пароли из предыдущей версии MVP автоматически мигрируют в hash после первого успешного login.
 
-1. Откройте http://localhost:8000
-2. Нажмите "Начать бесплатно" или перейдите на /login
-3. Выберите "Зарегистрироваться"
-4. Введите данные и токен приглашения для вашей роли
-5. Войдите под созданными учетными данными
+Logout отзывает server-side session. Session TTL сейчас 8 часов.
 
-## 📋 Пользовательский сценарий
+## Browser proctoring
 
-### Для HR / Рекрутера
+Во время интервью кандидат заранее видит уведомление о базовом прокторинге. После старта браузер фиксирует только технические integrity-signals:
 
-1. **Создание вакансии**
-   - Загрузите описание вакансии и требования
-   - Система автоматически подберет 10-20 вопросов по тегам
-   - Утвердите финальный список вопросов
+- скрытие/возврат вкладки и длительность;
+- потерю/возврат фокуса окна;
+- copy / cut / paste **без содержимого буфера обмена**;
+- вход/выход из fullscreen;
+- offline / online;
+- остановку camera/microphone tracks.
 
-2. **Приглашение кандидата**
-   - Создайте интервью для вакансии
-   - Получите персональную ссылку
-   - Отправьте ссылку кандидату
+События батчатся в `/api/interviews/{session_token}/proctor-events`. HR и hiring manager видят агрегаты в отчёте.
 
-3. **Просмотр результатов**
-   - После прохождения интервью кандидатом
-   - Доступны: видео, транскрипт, ИИ-оценка
-   - Структурированное заключение с рекомендациями
+**Важно:** сигналы прокторинга не входят в technical score, не являются доказательством нарушения и предназначены только для human review.
 
-### Для Кандидата
+## Основной flow
 
-1. Перейдите по полученной ссылке
-2. Включите камеру и микрофон
-3. Прослушайте вопрос (TTS) и прочитайте его на экране
-4. Запишите видеоответ (2 минуты на вопрос)
-5. Проверьте транскрипцию ответа (можно исправить)
-6. Перейдите к следующему вопросу
+### HR
 
-### Для Нанимающего Менеджера
+- создаёт вакансию из raw text;
+- получает suggested question pool и утверждает базовый набор;
+- для конкретного кандидата может менять/выключать вопросы и добавлять свои до старта интервью;
+- создаёт candidate link;
+- получает video/audio/transcript/evidence-based AI report;
+- делает первый approve / reject / needs review;
+- управляет HR lifecycle (`active / hold / rejected / hired`).
 
-1. Получите ссылку от рекрутера
-2. Просмотрите результаты интервью:
-   - Видеоответы по каждому вопросу
-   - Транскрипты
-   - ИИ-анализ с оценкой соответствия
-3. Примите решение о движении кандидата
+### Candidate
 
-## 🛠 Технологии
+- открывает персональную ссылку;
+- проверяет camera/mic;
+- видит предупреждение о прокторинге;
+- отвечает на вопросы в chat-style UI;
+- после ответа проверяет ASR transcript;
+- система пишет непрерывное full interview video и отдельный audio каждого ответа.
 
-- **Backend:** FastAPI (Python)
-- **Database:** SQLite (MVP), PostgreSQL (production)
-- **AI Services:**
-  - LLM: OpenAI API / OpenRouter / Qwen (анализ вакансий и ответов)
-  - ASR: DeepGram API (транскрибация)
-  - TTS: Edge-TTS (озвучка вопросов)
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript
-- **Storage:** Локальное хранилище (MVP), S3 (production)
+### Hiring manager
 
-## 📁 Структура проекта
+- видит только кандидатов после явного HR approve;
+- читает AI report, evidence, media и HR comment;
+- принимает финальное approve/reject решение.
 
-```
-video_interview_mvp/
-├── main.py              # Основное приложение FastAPI
-├── database.py          # Модели БД и инициализация
-├── config.py            # Конфигурация
-├── requirements.txt     # Зависимости Python
-├── Dockerfile           # Docker образ
-├── docker-compose.yml   # Docker Compose конфигурация
-├── .env.example         # Пример конфигурации
-├── templates/           # HTML шаблоны
-│   ├── landing.html     # Лендинг
-│   ├── login.html       # Вход/регистрация
-│   ├── dashboard.html   # Панель HR
-│   ├── interview.html   # Интерфейс кандидата
-│   └── report.html      # Отчет по кандидату
-├── static/              # Статические файлы (CSS, JS)
-├── data/                # Данные (вопросы и т.д.)
-│   └── questions.json   # Банк вопросов
-└── uploads/             # Загруженные видеофайлы
+## Media
+
+Browser `MediaRecorder` → backend → `ffmpeg/ffprobe` normalization. Full video хранится непрерывно, а после интервью backend строит per-answer clips по `start_ms/end_ms`. Report API возвращает duration/size/playable metadata, поэтому битый `0:00` файл не скрывается от пользователя.
+
+## Stack
+
+- FastAPI / Python 3.12
+- SQLite for MVP
+- Vanilla JS + HTML/CSS
+- MediaRecorder
+- ffmpeg / ffprobe
+- Deepgram API or mock ASR
+- Qwen/OpenRouter-compatible LLM API or mock evaluator
+- browser SpeechSynthesis
+
+## Environment
+
+```env
+LLM_API_KEY=
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL=qwen/qwen-2.5-72b-instruct
+DEEPGRAM_API_KEY=
 ```
 
-## ⚙️ Конфигурация
+Auth session/invite tokens are generated randomly at runtime and are not shared environment secrets.
 
-### Переменные окружения
+## Smoke tests
 
-| Переменная | Описание | По умолчанию |
-|------------|----------|--------------|
-| `SECRET_KEY` | Секретный ключ для JWT | `supersecretkey_change_in_prod` |
-| `HR_INVITE_TOKEN` | Токен для регистрации HR | `hr_master_key_2024` |
-| `MANAGER_INVITE_TOKEN` | Токен для регистрации менеджера | `manager_master_key_2024` |
-| `LLM_API_KEY` | API ключ для LLM (OpenAI/OpenRouter) | (пусто, демо-режим) |
-| `LLM_API_BASE` | URL API для LLM | `https://api.openai.com/v1` |
-| `LLM_MODEL` | Модель LLM | `gpt-4o-mini` |
-| `DEEPGRAM_API_KEY` | API ключ для транскрибации | (пусто, демо-режим) |
+```bash
+python -m compileall -q .
+python -m unittest discover -s tests -v
+```
 
-## 🎯 MVP Функционал
+GitHub Actions запускает эти проверки для изменений `video_interview_mvp/**`.
 
-- ✅ Регистрация/авторизация с токенами доступа
-- ✅ Создание вакансий с авто-подбором вопросов
-- ✅ Генерация ссылок для кандидатов
-- ✅ Интерфейс прохождения интервью
-- ✅ Запись видеоответов
-- ✅ Транскрибация (DeepGram API или демо)
-- ✅ ИИ-анализ ответов (LLM API или демо)
-- ✅ Формирование структурированного отчета
-- ✅ Просмотр результатов HR и менеджером
+## Ограничения MVP
 
-## 📊 Целевые метрики
-
-- ≥80% совпадений решений ИИ с экспертом
-- Корректная транскрибация ответов
-- Полный цикл без участия технического эксперта
-
-## 🔒 Безопасность
-
-- Токены приглашения для ограничения регистрации
-- Хеширование паролей (в production использовать bcrypt)
-- Разделение ролей (HR, Manager, Candidate)
-
-## 📝 Лицензия
-
-MIT License
+- SQLite/local media storage вместо PostgreSQL/S3;
+- один workspace без полноценной organization model;
+- нет email delivery invitation links;
+- нет password reset / MFA / SSO;
+- browser proctoring — только evidence signal, не автоматический anti-cheat classifier;
+- нейросетевой gaze/audio proctoring намеренно вынесен в следующий этап после отдельной проверки технологий.
