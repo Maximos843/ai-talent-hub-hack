@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 import database
 import legacy_main
+from adaptive_models import QuestionProbeConfig
 from database import Question, User, get_db
 
 
@@ -27,6 +28,7 @@ class QuestionCreate(BaseModel):
     must_have: List[str] = Field(default_factory=list)
     nice_to_have: List[str] = Field(default_factory=list)
     red_flags: List[str] = Field(default_factory=list)
+    possible_extra_questions: List[str] = Field(default_factory=list)
 
 
 class QuestionUpdate(BaseModel):
@@ -37,6 +39,7 @@ class QuestionUpdate(BaseModel):
     must_have: Optional[List[str]] = None
     nice_to_have: Optional[List[str]] = None
     red_flags: Optional[List[str]] = None
+    possible_extra_questions: Optional[List[str]] = None
 
 
 def _clean_list(values: List[str]) -> List[str]:
@@ -48,7 +51,12 @@ def _clean_list(values: List[str]) -> List[str]:
     return result
 
 
-def _payload(question: Question) -> dict:
+def _probe_config(question_id: int, db: Session) -> Optional[QuestionProbeConfig]:
+    return db.query(QuestionProbeConfig).filter(QuestionProbeConfig.question_id == question_id).first()
+
+
+def _payload(question: Question, db: Session) -> dict:
+    config = _probe_config(question.id, db)
     return {
         "bank_id": str(question.id),
         "database_id": question.id,
@@ -59,12 +67,13 @@ def _payload(question: Question) -> dict:
         "must_have": question.must_have or [],
         "nice_to_have": question.nice_to_have or [],
         "red_flags": question.red_flags or [],
+        "possible_extra_questions": config.possible_extra_questions if config else [],
         "usage_count": len(question.session_questions or []),
     }
 
 
 def ensure_question_bank_seeded() -> None:
-    """Import bundled JSON questions once without overwriting HR edits."""
+    """Import bundled questions and backfill follow-up hints without overwriting HR edits."""
     if not QUESTIONS_FILE.exists():
         return
     try:
@@ -73,23 +82,35 @@ def ensure_question_bank_seeded() -> None:
         return
     db = database.SessionLocal()
     try:
-        existing = {q.question_text for q in db.query(Question).all()}
+        by_text = {q.question_text: q for q in db.query(Question).all()}
         changed = False
         for item in seed:
             text = str(item.get("question", "")).strip()
-            if not text or text in existing:
+            if not text:
                 continue
-            db.add(Question(
-                question_text=text,
-                tags=_clean_list(item.get("tags", [])),
-                competency=str(item.get("competency", "general")).strip() or "general",
-                reference_answer=str(item.get("reference_answer", "")),
-                must_have=_clean_list(item.get("must_have", [])),
-                nice_to_have=_clean_list(item.get("nice_to_have", [])),
-                red_flags=_clean_list(item.get("red_flags", [])),
-            ))
-            existing.add(text)
-            changed = True
+            question = by_text.get(text)
+            if not question:
+                question = Question(
+                    question_text=text,
+                    tags=_clean_list(item.get("tags", [])),
+                    competency=str(item.get("competency", "general")).strip() or "general",
+                    reference_answer=str(item.get("reference_answer", "")),
+                    must_have=_clean_list(item.get("must_have", [])),
+                    nice_to_have=_clean_list(item.get("nice_to_have", [])),
+                    red_flags=_clean_list(item.get("red_flags", [])),
+                )
+                db.add(question)
+                db.flush()
+                by_text[text] = question
+                changed = True
+            if not _probe_config(question.id, db):
+                db.add(
+                    QuestionProbeConfig(
+                        question_id=question.id,
+                        possible_extra_questions=_clean_list(item.get("possible_extra_questions", [])),
+                    )
+                )
+                changed = True
         if changed:
             db.commit()
     finally:
@@ -97,23 +118,27 @@ def ensure_question_bank_seeded() -> None:
 
 
 def load_question_bank_snapshot() -> List[dict]:
-    """Compatibility hook used by legacy vacancy creation; DB is source of truth."""
+    """Compatibility hook used by vacancy creation; DB is source of truth."""
     ensure_question_bank_seeded()
     db = database.SessionLocal()
     try:
-        return [
-            {
-                "id": str(q.id),
-                "question": q.question_text,
-                "tags": q.tags or [],
-                "competency": q.competency or "general",
-                "reference_answer": q.reference_answer or "",
-                "must_have": q.must_have or [],
-                "nice_to_have": q.nice_to_have or [],
-                "red_flags": q.red_flags or [],
-            }
-            for q in db.query(Question).order_by(Question.competency, Question.id).all()
-        ]
+        result = []
+        for q in db.query(Question).order_by(Question.competency, Question.id).all():
+            config = _probe_config(q.id, db)
+            result.append(
+                {
+                    "id": str(q.id),
+                    "question": q.question_text,
+                    "tags": q.tags or [],
+                    "competency": q.competency or "general",
+                    "reference_answer": q.reference_answer or "",
+                    "must_have": q.must_have or [],
+                    "nice_to_have": q.nice_to_have or [],
+                    "red_flags": q.red_flags or [],
+                    "possible_extra_questions": config.possible_extra_questions if config else [],
+                }
+            )
+        return result
     finally:
         db.close()
 
@@ -138,10 +163,12 @@ def get_questions(
     competency_value = competency.strip().lower()
     result = []
     for question in db.query(Question).order_by(Question.competency, Question.id).all():
-        payload = _payload(question)
+        payload = _payload(question, db)
         haystack = " ".join([
             payload["question"], payload["competency"], " ".join(payload["tags"]),
             payload["reference_answer"], " ".join(payload["must_have"]),
+            " ".join(payload["nice_to_have"]), " ".join(payload["red_flags"]),
+            " ".join(payload["possible_extra_questions"]),
         ]).lower()
         if needle and needle not in haystack:
             continue
@@ -186,9 +213,16 @@ def create_question(
         red_flags=_clean_list(payload.red_flags),
     )
     db.add(question)
+    db.flush()
+    db.add(
+        QuestionProbeConfig(
+            question_id=question.id,
+            possible_extra_questions=_clean_list(payload.possible_extra_questions),
+        )
+    )
     db.commit()
     db.refresh(question)
-    return _payload(question)
+    return _payload(question, db)
 
 
 @router.patch("/api/questions/{question_id}")
@@ -221,9 +255,15 @@ def update_question(
         question.nice_to_have = _clean_list(payload.nice_to_have)
     if payload.red_flags is not None:
         question.red_flags = _clean_list(payload.red_flags)
+    if payload.possible_extra_questions is not None:
+        config = _probe_config(question.id, db)
+        if not config:
+            config = QuestionProbeConfig(question_id=question.id)
+            db.add(config)
+        config.possible_extra_questions = _clean_list(payload.possible_extra_questions)
     db.commit()
     db.refresh(question)
-    return _payload(question)
+    return _payload(question, db)
 
 
 ensure_question_bank_seeded()

@@ -17,6 +17,7 @@ COMPETENCY_STATUSES = {"подтверждена", "частично подтв�
 COVERAGE_STATUSES = {"подтверждено", "частично подтверждено", "не проверено", "есть риск"}
 ISSUE_TYPES = {"риск", "противоречие", "зона роста"}
 MOTIVATION_COMPETENCIES = {"motivation", "motivational", "мотивация"}
+FOLLOW_UP_SOURCES = {"possible_extra_questions", "generated", "none"}
 
 
 class LLMService:
@@ -88,6 +89,17 @@ class LLMService:
 
     def _get_mock_response(self, messages: List[Dict[str, str]]) -> str:
         text = messages[-1]["content"] if messages else ""
+        if '"max_follow_ups"' in text and '"already_asked_questions"' in text:
+            return json.dumps({
+                "ask_follow_up": False,
+                "follow_up_question": None,
+                "follow_up_must_have": [],
+                "reason": "Mock mode: продолжаем по основному сценарию.",
+                "focus": "",
+                "source": "none",
+                "resolved_root_score_0_10": 7.0,
+                "confidence_0_1": 0.7,
+            }, ensure_ascii=False)
         if '"candidate_answers"' in text and '"vacancy_coverage"' in text:
             return json.dumps({
                 "recommendation": "требуется дополнительная проверка",
@@ -140,9 +152,6 @@ class LLMService:
             covered = self._subset(raw.get("covered_must_have"), input_data["must_have"])
             missing = [item for item in input_data["must_have"] if item not in covered]
             red_flags_found = self._subset(raw.get("red_flags_found"), input_data["red_flags"])
-            # A red flag must have some verbatim answer evidence; without any
-            # valid quote we conservatively drop it instead of treating silence
-            # as a negative signal.
             if not quotes:
                 red_flags_found = []
             result = {
@@ -176,6 +185,83 @@ class LLMService:
             "confidence": result["confidence_0_1"],
         })
         return result
+
+    async def decide_follow_up(
+        self,
+        root_question_id: str,
+        root_question: str,
+        competency: str,
+        reference_answer: str,
+        must_have: List[str],
+        nice_to_have: List[str],
+        red_flags: List[str],
+        possible_extra_questions: List[str],
+        turns: List[Dict[str, Any]],
+        already_asked_questions: List[str],
+        follow_up_count: int,
+        max_follow_ups: int = 2,
+    ) -> Dict[str, Any]:
+        scores = []
+        for turn in turns or []:
+            try:
+                scores.append(max(0.0, min(10.0, float(turn.get("score_0_10", 5)))))
+            except (TypeError, ValueError):
+                pass
+        fallback_score = sum(scores) / len(scores) if scores else 5.0
+        input_data = {
+            "root_question_id": str(root_question_id),
+            "root_question": root_question,
+            "competency": competency or "general",
+            "reference_answer": reference_answer or "",
+            "must_have": list(must_have or []),
+            "nice_to_have": list(nice_to_have or []),
+            "red_flags": list(red_flags or []),
+            "possible_extra_questions": list(possible_extra_questions or []),
+            "follow_up_count": max(0, int(follow_up_count)),
+            "max_follow_ups": max(0, int(max_follow_ups)),
+            "already_asked_questions": list(already_asked_questions or []),
+            "turns": list(turns or []),
+        }
+        try:
+            raw = self._parse_json(await self._call_llm([
+                {"role": "user", "content": self._load_prompt("follow_up_decision.md", input_data)}
+            ]))
+            ask = bool(raw.get("ask_follow_up")) and input_data["follow_up_count"] < input_data["max_follow_ups"]
+            question = str(raw.get("follow_up_question") or "").strip() if ask else ""
+            if not question:
+                ask = False
+            source = raw.get("source") if raw.get("source") in FOLLOW_UP_SOURCES else "none"
+            if not ask:
+                source = "none"
+            try:
+                resolved = max(0.0, min(10.0, float(raw.get("resolved_root_score_0_10", fallback_score))))
+            except (TypeError, ValueError):
+                resolved = fallback_score
+            try:
+                confidence = max(0.0, min(1.0, float(raw.get("confidence_0_1", 0.5))))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            return {
+                "ask_follow_up": ask,
+                "follow_up_question": question if ask else None,
+                "follow_up_must_have": self._strings(raw.get("follow_up_must_have"))[:4] if ask else [],
+                "reason": str(raw.get("reason") or "").strip(),
+                "focus": str(raw.get("focus") or "").strip(),
+                "source": source,
+                "resolved_root_score_0_10": round(resolved, 2),
+                "confidence_0_1": confidence,
+            }
+        except Exception as exc:
+            return {
+                "ask_follow_up": False,
+                "follow_up_question": None,
+                "follow_up_must_have": [],
+                "reason": f"Adaptive probing недоступен, интервью продолжается по основному сценарию: {exc}",
+                "focus": "",
+                "source": "none",
+                "resolved_root_score_0_10": round(fallback_score, 2),
+                "confidence_0_1": 0.0,
+            }
 
     @staticmethod
     def _normalize_competencies(value: Any, transcripts: List[str]) -> List[dict]:
@@ -280,8 +366,9 @@ class LLMService:
                 "confidence_0_1": answer.get("confidence_0_1", answer.get("confidence", 0.5)),
             }
             competency = str(answer.get("competency", "general") or "general")
-            score = evaluation.get("score_0_10", answer.get("score_0_10", answer.get("score")))
-            if competency.strip().lower() not in MOTIVATION_COMPETENCIES and score is not None:
+            counts = bool(answer.get("counts_toward_technical_average", True))
+            score = answer.get("technical_score_0_10", evaluation.get("score_0_10", answer.get("score_0_10", answer.get("score"))))
+            if counts and competency.strip().lower() not in MOTIVATION_COMPETENCIES and score is not None:
                 try:
                     technical_scores.append(max(0.0, min(10.0, float(score))))
                 except (TypeError, ValueError):
@@ -293,6 +380,11 @@ class LLMService:
                 "question_text": answer.get("question_text", answer.get("question", "")),
                 "competency": competency,
                 "transcript": transcript,
+                "is_follow_up": bool(answer.get("is_follow_up", False)),
+                "root_question_id": str(answer.get("root_question_id") or answer.get("question_id") or index),
+                "follow_up_index": answer.get("follow_up_index"),
+                "probe_reason": answer.get("probe_reason", ""),
+                "probe_focus": answer.get("probe_focus", ""),
                 "evaluation": evaluation,
             })
 
