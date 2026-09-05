@@ -1,9 +1,9 @@
 """Helpers for durable browser MediaRecorder uploads.
 
-MediaRecorder blobs (especially WebM assembled from timeslices) may contain valid
-media but miss duration/cue metadata. Browsers then render them as 0:00.  The
-hackathon image already contains ffmpeg, so uploads are remuxed/transcoded once
-on the server and probed before we expose them in reports.
+Browser MediaRecorder files (especially WebM blobs made from timeslices) can be
+valid media while still missing duration/cue metadata. Browsers then display
+0:00. The Docker image already contains ffmpeg, so uploads are normalized once
+on the server and probed before they are exposed in reports.
 """
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ def _run(command: list[str], timeout: int = 90) -> bool:
 
 
 def probe_duration_ms(path: Path) -> Optional[int]:
-    """Return media duration in milliseconds when ffprobe can determine it."""
     if not FFPROBE or not path.exists() or path.stat().st_size == 0:
         return None
     try:
@@ -61,12 +60,7 @@ def probe_duration_ms(path: Path) -> Optional[int]:
 
 
 def normalize_audio(source: Path) -> tuple[Path, Optional[int]]:
-    """Convert a browser audio blob to MP3 for predictable report playback.
-
-    MP3 is intentionally used here because it plays in all target browsers and
-    ffmpeg writes deterministic duration metadata.  If ffmpeg is unavailable we
-    keep the original upload and rely on the client-side measured duration.
-    """
+    """Convert browser audio to MP3 with deterministic duration metadata."""
     if not FFMPEG or not source.exists():
         return source, probe_duration_ms(source)
 
@@ -97,12 +91,7 @@ def normalize_audio(source: Path) -> tuple[Path, Optional[int]]:
 
 
 def normalize_video(source: Path) -> tuple[Path, Optional[int]]:
-    """Remux browser video so the container contains duration/cue metadata.
-
-    No video re-encode is done: it would be unnecessarily slow for a hackathon
-    interview.  MP4 gets fast-start metadata; WebM is remuxed into a fresh WebM
-    container. If remuxing fails, the original upload is retained.
-    """
+    """Remux browser video so the container has duration/cue metadata."""
     if not FFMPEG or not source.exists():
         return source, probe_duration_ms(source)
 
@@ -144,6 +133,46 @@ def normalize_video(source: Path) -> tuple[Path, Optional[int]]:
     duration = probe_duration_ms(target)
     source.unlink(missing_ok=True)
     return target, duration
+
+
+def extract_video_clip(source: Path, target: Path, start_ms: int, end_ms: int) -> tuple[Optional[Path], Optional[int]]:
+    """Create an independently seekable per-answer clip from continuous video."""
+    if not FFMPEG or not source.exists() or end_ms <= start_ms:
+        return None, None
+
+    start_seconds = max(0, start_ms) / 1000
+    duration_seconds = max(0.25, (end_ms - start_ms) / 1000)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    ok = _run(
+        [
+            FFMPEG,
+            "-y",
+            "-ss",
+            f"{start_seconds:.3f}",
+            "-i",
+            str(source),
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-c:v",
+            "libvpx-vp9",
+            "-deadline",
+            "realtime",
+            "-cpu-used",
+            "6",
+            "-b:v",
+            "650k",
+            "-c:a",
+            "libopus",
+            "-b:a",
+            "64k",
+            str(target),
+        ],
+        timeout=max(45, int(duration_seconds * 4)),
+    )
+    if not ok or not target.exists() or target.stat().st_size == 0:
+        target.unlink(missing_ok=True)
+        return None, None
+    return target, probe_duration_ms(target)
 
 
 def media_metadata(path: Optional[str], fallback_duration_ms: Optional[int] = None) -> dict:
