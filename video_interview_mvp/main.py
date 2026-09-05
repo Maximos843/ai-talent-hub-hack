@@ -33,6 +33,7 @@ app = _legacy_app
 _replaced = {
     ("/api/questions", "GET"),
     ("/api/interviews/{session_token}", "GET"),
+    ("/api/interviews/submit-answer", "POST"),
     ("/api/interviews/correct-transcript", "POST"),
     ("/api/interviews/{session_id}/complete", "POST"),
     ("/api/reports/{session_id}", "GET"),
@@ -49,6 +50,7 @@ _legacy_app.router.routes = [
 # Register DB-backed question bank, adaptive probing and schema-safe scoring
 # before the business app is mounted by the auth gateway.
 from adaptive_routes import router as adaptive_router, snapshot_probe_configs
+from adaptive_submit_routes import router as adaptive_submit_router
 from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
 from scoring_routes import router as scoring_router
 
@@ -63,6 +65,7 @@ def _copy_default_questions_with_probe_snapshot(session, db):
 
 legacy_main._copy_default_questions_to_session = _copy_default_questions_with_probe_snapshot
 _legacy_app.include_router(question_bank_router)
+_legacy_app.include_router(adaptive_submit_router)
 _legacy_app.include_router(adaptive_router)
 _legacy_app.include_router(scoring_router)
 
