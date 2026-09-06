@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 import httpx
 
-from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MODEL_FAST
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -25,6 +25,8 @@ class LLMService:
         self.api_key = api_key or LLM_API_KEY
         self.base_url = base_url or LLM_BASE_URL
         self.model = model or LLM_MODEL
+        # Быстрая модель используется там, где кандидат ждёт ответа вживую.
+        self.fast_model = model or LLM_MODEL_FAST
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -32,14 +34,21 @@ class LLMService:
             "X-Title": "Talent Interview MVP",
         }
 
-    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.1) -> str:
+    async def _call_llm(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.1,
+        fast: bool = False,
+    ) -> str:
         if not self.api_key:
             return self._get_mock_response(messages)
         payload = {
-            "model": self.model,
+            "model": self.fast_model if fast else self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 3600,
+            # Итоговое заключение по шести ответам с цитатами не влезало в 3600
+            # токенов: JSON обрывался на середине и отчёт молча уходил в фолбэк.
+            "max_tokens": 8000,
         }
         async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
             response = await client.post(
@@ -145,9 +154,10 @@ class LLMService:
             "transcript": candidate_transcript or "",
         }
         try:
-            raw = self._parse_json(await self._call_llm([
-                {"role": "user", "content": self._load_prompt("score_question.md", input_data)}
-            ]))
+            raw = self._parse_json(await self._call_llm(
+                [{"role": "user", "content": self._load_prompt("score_question.md", input_data)}],
+                fast=True,
+            ))
             quotes = self._quotes(raw.get("evidence_quotes"), [input_data["transcript"]])
             covered = self._subset(raw.get("covered_must_have"), input_data["must_have"])
             missing = [item for item in input_data["must_have"] if item not in covered]
@@ -223,9 +233,10 @@ class LLMService:
             "turns": list(turns or []),
         }
         try:
-            raw = self._parse_json(await self._call_llm([
-                {"role": "user", "content": self._load_prompt("follow_up_decision.md", input_data)}
-            ]))
+            raw = self._parse_json(await self._call_llm(
+                [{"role": "user", "content": self._load_prompt("follow_up_decision.md", input_data)}],
+                fast=True,
+            ))
             ask = bool(raw.get("ask_follow_up")) and input_data["follow_up_count"] < input_data["max_follow_ups"]
             question = str(raw.get("follow_up_question") or "").strip() if ask else ""
             if not question:

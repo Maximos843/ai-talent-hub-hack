@@ -511,6 +511,8 @@ async def get_vacancy_details(
                 "competency": q.competency or "",
                 "must_have": q.must_have or [],
                 "nice_to_have": q.nice_to_have or [],
+                "red_flags": q.red_flags or [],
+                "reference_answer": q.reference_answer or "",
                 "is_approved": bool(item.is_approved),
             })
     sessions = (

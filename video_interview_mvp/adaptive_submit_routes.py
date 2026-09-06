@@ -19,6 +19,7 @@ import legacy_main
 from adaptive_models import AnswerQuestionLink
 from database import Answer, AnswerMedia, InterviewQuestion, InterviewSession, get_db
 from services import asr_service
+from services.document_service import polish_transcript
 from services.media_service import normalize_audio
 
 
@@ -67,8 +68,15 @@ async def submit_answer(
 
     raw_transcript = transcript.strip()
     asr_confidence = None
+    # Термины из самого вопроса и его рубрики: Deepgram распознаёт их как
+    # термины, а не как похожие по звуку слова.
+    keyterms = [
+        *(interview_question.must_have or []),
+        *(interview_question.nice_to_have or []),
+        *interview_question.question_text.split(),
+    ]
     if file_bytes:
-        asr_result = await asr_service.transcribe_audio(file_bytes, language="ru")
+        asr_result = await asr_service.transcribe_audio(file_bytes, language="ru", keyterms=keyterms)
         if asr_result.get("success") and asr_result.get("transcript"):
             raw_transcript = asr_result["transcript"].strip()
             asr_confidence = asr_result.get("confidence")
@@ -77,6 +85,9 @@ async def submit_answer(
                 status_code=502,
                 detail=f"Не удалось распознать речь: {asr_result.get('error', 'ASR error')}",
             )
+
+    # Расшифровку показываем кандидату и оцениваем — она должна быть читаемой.
+    polished = await polish_transcript(raw_transcript, interview_question.question_text, keyterms)
 
     if raw_upload_path:
         normalized_path, probed_duration = normalize_audio(raw_upload_path)
@@ -91,7 +102,7 @@ async def submit_answer(
         video_path=None,
         audio_path=audio_path,
         transcript_raw=raw_transcript,
-        transcript_corrected=raw_transcript,
+        transcript_corrected=polished,
         is_approved_by_candidate=False,
     )
     db.add(answer)
