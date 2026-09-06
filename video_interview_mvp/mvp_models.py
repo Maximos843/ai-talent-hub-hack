@@ -1,11 +1,11 @@
-"""Additive MVP tables for authentication and browser proctoring.
+"""Additive MVP tables for authentication, media metadata and browser proctoring.
 
 They intentionally live outside database.py so the current hackathon database can
 be upgraded with create_all() and without destructive migrations.
 """
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -41,6 +41,30 @@ class WorkspaceInvite(Base):
 
     created_by = relationship("User", foreign_keys=[created_by_id])
     used_by = relationship("User", foreign_keys=[used_by_id])
+
+
+class FullInterviewMedia(Base):
+    """Durable metadata for the continuous interview recording.
+
+    Browser MediaRecorder containers may not expose duration reliably to ffprobe.
+    We therefore persist the best duration known at upload time and remember
+    whether it came from a server probe or the browser timeline. This is a
+    technical playback hint only; it is never an authenticity judgment.
+    """
+
+    __tablename__ = "full_interview_media"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("interview_sessions.id"), unique=True, nullable=False, index=True)
+    path = Column(String, nullable=False)
+    duration_ms = Column(Integer)
+    size_bytes = Column(Integer)
+    duration_source = Column(String, nullable=False, default="unknown")  # server_probe / client_reported / answer_timeline / unknown
+    normalized = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    interview_session = relationship("InterviewSession")
 
 
 class ProctorEvent(Base):
