@@ -40,6 +40,11 @@ class Vacancy(Base):
     owner_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
+    # draft — пул вопросов не утверждён, ссылку выдать нельзя
+    # active — идёт набор
+    # closed — вакансия закрыта, лежит в истории
+    status = Column(String, default="draft")
+    closed_at = Column(DateTime)
 
     owner = relationship("User", back_populates="vacancies")
     session_questions = relationship("SessionQuestion", back_populates="vacancy")
@@ -87,6 +92,9 @@ class InterviewSession(Base):
     candidate_name = Column(String)
     session_token = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, default="pending")
+    # Разводит две первые колонки канбана: кандидат заведён, но ссылку ему ещё
+    # не отправили — это не то же самое, что приглашённый кандидат.
+    invited_at = Column(DateTime)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)

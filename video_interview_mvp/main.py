@@ -24,8 +24,16 @@ from legacy_main import app as _legacy_app
 
 # Register additive adaptive tables before question-bank seeding touches them.
 import adaptive_models  # noqa: F401
+import workspace_models  # noqa: F401
 
 database.init_db()
+# Часть новых полей обязана лежать на существующих таблицах — добавляем их
+# идемпотентно, create_all такие изменения не подхватывает.
+from migrations import ensure_columns
+
+_applied_columns = ensure_columns()
+if _applied_columns:
+    print("Схема обновлена:", ", ".join(_applied_columns))
 app = _legacy_app
 
 # Replace only the legacy routes whose contracts are now canonicalized. This
@@ -53,6 +61,7 @@ from adaptive_routes import router as adaptive_router, snapshot_probe_configs
 from adaptive_submit_routes import router as adaptive_submit_router
 from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
 from scoring_routes import router as scoring_router
+from workspace_routes import router as workspace_router
 
 legacy_main._load_question_bank = load_question_bank_snapshot
 _original_copy_default_questions = legacy_main._copy_default_questions_to_session
@@ -68,6 +77,7 @@ _legacy_app.include_router(question_bank_router)
 _legacy_app.include_router(adaptive_submit_router)
 _legacy_app.include_router(adaptive_router)
 _legacy_app.include_router(scoring_router)
+_legacy_app.include_router(workspace_router)
 
 # app.py imports ``main`` while constructing the gateway. In that case expose
 # only the legacy surface to avoid recursion. On a normal ``import main`` we
