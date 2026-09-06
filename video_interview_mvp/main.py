@@ -22,21 +22,24 @@ import legacy_main
 from legacy_main import _manager_can_view
 from legacy_main import app as _legacy_app
 
-# Register additive adaptive tables before question-bank seeding touches them.
+# Register additive tables before question-bank seeding or media routes touch them.
 import adaptive_models  # noqa: F401
+import mvp_models  # noqa: F401
 
 database.init_db()
 app = _legacy_app
 
-# Replace only the legacy routes whose contracts are now canonicalized. This
-# keeps the rest of the battle-tested MVP business flow untouched.
+# Replace only legacy routes whose contracts are canonicalized. This keeps the
+# rest of the battle-tested MVP business flow untouched.
 _replaced = {
     ("/api/questions", "GET"),
     ("/api/interviews/{session_token}", "GET"),
     ("/api/interviews/submit-answer", "POST"),
     ("/api/interviews/correct-transcript", "POST"),
+    ("/api/interviews/{session_id}/full-video", "POST"),
     ("/api/interviews/{session_id}/complete", "POST"),
     ("/api/reports/{session_id}", "GET"),
+    ("/api/candidates/{session_id}/status", "PATCH"),
 }
 _legacy_app.router.routes = [
     route
@@ -47,13 +50,19 @@ _legacy_app.router.routes = [
     )
 ]
 
-# Register DB-backed question bank, adaptive probing and schema-safe scoring
-# before the business app is mounted by the auth gateway.
+# Register DB-backed question bank, adaptive probing, media handling and
+# schema-safe scoring before the business app is mounted by the auth gateway.
 from adaptive_routes import router as adaptive_router, snapshot_probe_configs
 from adaptive_submit_routes import router as adaptive_submit_router
+from hr_access_routes import router as hr_access_router
+from media_report_routes import router as media_report_router
+from media_routes import router as media_router
 from question_bank_routes import load_question_bank_snapshot, router as question_bank_router
 from scoring_routes import router as scoring_router
+from services import llm_service
+from services.llm_logging import install_llm_logging
 
+install_llm_logging(llm_service)
 legacy_main._load_question_bank = load_question_bank_snapshot
 _original_copy_default_questions = legacy_main._copy_default_questions_to_session
 
@@ -67,7 +76,22 @@ legacy_main._copy_default_questions_to_session = _copy_default_questions_with_pr
 _legacy_app.include_router(question_bank_router)
 _legacy_app.include_router(adaptive_submit_router)
 _legacy_app.include_router(adaptive_router)
+_legacy_app.include_router(media_router)
+_legacy_app.include_router(hr_access_router)
 _legacy_app.include_router(scoring_router)
+
+# scoring_router owns report generation and most report helpers, but the final
+# GET is wrapped so full-video metadata is stable even when ffprobe cannot infer
+# browser MediaRecorder duration on a later request.
+_legacy_app.router.routes = [
+    route
+    for route in _legacy_app.router.routes
+    if not (
+        getattr(route, "path", None) == "/api/reports/{session_id}"
+        and "GET" in (getattr(route, "methods", set()) or set())
+    )
+]
+_legacy_app.include_router(media_report_router)
 
 # app.py imports ``main`` while constructing the gateway. In that case expose
 # only the legacy surface to avoid recursion. On a normal ``import main`` we
