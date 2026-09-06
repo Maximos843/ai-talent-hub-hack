@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from jinja2 import Template
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -39,11 +39,14 @@ from services.auth_service import (
 
 # Import after mvp_models so main.init_db() creates additive tables as well.
 import main as legacy_main
+from services.tts_service_cartesia import TTSUnavailable, synthesize
 
 
 database.init_db()
 legacy_app = legacy_main.app
 BASE_DIR = Path(__file__).parent
+# Сборка React-рабочего места. Пока её нет, работают legacy-шаблоны.
+SPA_INDEX = BASE_DIR / "static" / "app" / "index.html"
 
 app = FastAPI(title="Talent Interview MVP", version="1.6.0")
 
@@ -93,6 +96,9 @@ def _looks_like_candidate_api(method: str, path: str) -> bool:
     if method == "POST" and len(tail) == 2 and "-" in tail[0] and tail[1] == "start":
         return True
     if method == "POST" and len(tail) == 2 and tail[0].isdigit() and tail[1] in {"full-video", "complete"}:
+        return True
+    # Озвучка вопроса: кандидат не авторизован, но токен сессии его опознаёт.
+    if method == "GET" and len(tail) == 2 and "-" in tail[0] and tail[1] == "speak":
         return True
     return False
 
@@ -421,9 +427,16 @@ def _html_with_bridge(path: Path, user: User) -> str:
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, db: Session = Depends(get_db)):
+    """Старый маршрут ведёт в новое рабочее место.
+
+    Обе роли работают в React-приложении, а legacy-шаблон остаётся только как
+    фолбэк на случай, если сборка фронтенда недоступна.
+    """
     user = _session_user(request, db)
     if not user:
         return RedirectResponse("/login", status_code=303)
+    if SPA_INDEX.is_file():
+        return RedirectResponse("/app", status_code=303)
     return HTMLResponse(_html_with_bridge(BASE_DIR / "templates" / "dashboard.html", user))
 
 
@@ -439,6 +452,8 @@ async def report_page(session_id: int, request: Request, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="Отчёт не найден")
     if user.role == "hiring_manager" and not legacy_main._manager_can_view(session):
         raise HTTPException(status_code=404, detail="Отчёт не найден")
+    if SPA_INDEX.is_file():
+        return RedirectResponse(f"/app/reports/{session_id}", status_code=303)
     return HTMLResponse(_html_with_bridge(BASE_DIR / "templates" / "report.html", user))
 
 
@@ -468,6 +483,45 @@ async def candidate_interview(session_token: str, db: Session = Depends(get_db))
             vacancy_title=session.vacancy.title,
         )
     )
+
+
+@app.get("/app", response_class=HTMLResponse)
+@app.get("/app/{spa_path:path}", response_class=HTMLResponse)
+async def workspace_spa(request: Request, spa_path: str = "", db: Session = Depends(get_db)):
+    """React-рабочее место рекрутера. Все внутренние маршруты отдают один index.html."""
+    user = _session_user(request, db)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    if not SPA_INDEX.is_file():
+        raise HTTPException(status_code=503, detail="Сборка рабочего места не найдена: выполните npm run build в frontend/")
+    text = SPA_INDEX.read_text(encoding="utf-8")
+    bootstrap = (
+        "<script>window.__USER__="
+        + json.dumps(
+            {"username": user.username, "role": user.role, "full_name": user.full_name},
+            ensure_ascii=False,
+        )
+        + ";</script>"
+    )
+    return HTMLResponse(text.replace("</head>", bootstrap + "</head>", 1))
+
+
+@app.get("/api/interviews/{session_token}/speak")
+async def speak_question(session_token: str, text: str = "", db: Session = Depends(get_db)):
+    """Озвучивает реплику интервьюера живым голосом.
+
+    Синтез кэшируется по тексту, поэтому один и тот же вопрос считается один
+    раз на всех кандидатов вакансии. Если Cartesia недоступна, отдаём 503 —
+    страница кандидата тихо откатится на браузерный голос.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Интервью не найдено")
+    try:
+        audio = await synthesize(text)
+    except TTSUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FileResponse(audio, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 # Keep all existing business routes and static mounts as a fallback.

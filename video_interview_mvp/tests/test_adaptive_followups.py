@@ -73,7 +73,7 @@ class AdaptiveFollowUpContractTests(unittest.TestCase):
     def test_follow_up_llm_contract_normalizes_and_enforces_max(self):
         service = LLMService(api_key="test-key")
 
-        async def fake_call(messages, temperature=0.1):
+        async def fake_call(messages, temperature=0.1, **kwargs):
             return json.dumps(
                 {
                     "ask_follow_up": True,
@@ -134,7 +134,7 @@ class AdaptiveFollowUpContractTests(unittest.TestCase):
         service = LLMService(api_key="test-key")
         captured = {}
 
-        async def fake_call(messages, temperature=0.1):
+        async def fake_call(messages, temperature=0.1, **kwargs):
             captured["prompt"] = messages[-1]["content"]
             return json.dumps(
                 {

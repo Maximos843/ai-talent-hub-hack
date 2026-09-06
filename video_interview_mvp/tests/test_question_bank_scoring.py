@@ -106,7 +106,7 @@ class QuestionBankAndScoringTests(unittest.TestCase):
     def test_question_scoring_schema_is_strict_and_evidence_grounded(self):
         service = LLMService(api_key="test-key")
 
-        async def fake_call(messages, temperature=0.1):
+        async def fake_call(messages, temperature=0.1, **kwargs):
             return json.dumps(
                 {
                     "score_0_10": 12,
@@ -147,7 +147,7 @@ class QuestionBankAndScoringTests(unittest.TestCase):
     def test_red_flag_is_dropped_without_verbatim_evidence(self):
         service = LLMService(api_key="test-key")
 
-        async def fake_call(messages, temperature=0.1):
+        async def fake_call(messages, temperature=0.1, **kwargs):
             return json.dumps(
                 {
                     "score_0_10": 3,
@@ -179,7 +179,7 @@ class QuestionBankAndScoringTests(unittest.TestCase):
         service = LLMService(api_key="test-key")
         captured = {}
 
-        async def fake_call(messages, temperature=0.1):
+        async def fake_call(messages, temperature=0.1, **kwargs):
             captured["prompt"] = messages[-1]["content"]
             return json.dumps(
                 {

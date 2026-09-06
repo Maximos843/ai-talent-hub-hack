@@ -13,7 +13,12 @@ class ASRService:
         self.api_key = api_key or DEEPGRAM_API_KEY
         self.base_url = "https://api.deepgram.com/v1/listen"
     
-    async def transcribe_audio(self, audio_data: bytes, language: str = "ru") -> Dict[str, Any]:
+    async def transcribe_audio(
+        self,
+        audio_data: bytes,
+        language: str = "ru",
+        keyterms: Optional[list] = None,
+    ) -> Dict[str, Any]:
         """
         Транскрибация аудиофайла
         
@@ -34,12 +39,17 @@ class ASRService:
         }
         
         params = {
-            "model": "nova-2",  # Высокоточная модель
+            # nova-3 заметно точнее на русской технической речи и принимает
+            # keyterm-подсказки: термины из вопроса распознаются как термины,
+            # а не как набор похожих по звуку слов.
+            "model": "nova-3",
             "language": language,
             "punctuate": "true",
             "smart_format": "true",
-            "utterances": "false"
+            "utterances": "false",
         }
+        if keyterms:
+            params["keyterm"] = [str(term)[:60] for term in keyterms if str(term).strip()][:40]
         
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:

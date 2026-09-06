@@ -5,6 +5,15 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
+
+# Локальный запуск читает .env так же, как docker compose. Без этого ключи
+# приходится каждый раз прокидывать переменными окружения вручную.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:  # pragma: no cover - зависимость опциональна
+    pass
 UPLOAD_DIR = BASE_DIR / "uploads"
 DATA_DIR = BASE_DIR / "data"
 STATIC_DIR = BASE_DIR / "static"
@@ -20,12 +29,21 @@ DATABASE_URL = "sqlite:///./video_interview.db"
 # LLM Configuration (OpenRouter или Qwen)
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen/qwen-2.5-72b-instruct")
+LLM_MODEL = os.getenv("LLM_MODEL", "google/gemini-3.8-flash")
+# Отдельная быстрая модель для шагов, где задержка видна кандидату: оценка ответа
+# и решение об уточняющем вопросе происходят прямо во время интервью.
+LLM_MODEL_FAST = os.getenv("LLM_MODEL_FAST", "google/gemini-3.1-flash-lite")
 
 # ASR Configuration (DeepGram)
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 
-# TTS Configuration (Edge-TTS - бесплатный)
+# TTS Configuration (Cartesia Sonic — живой русский голос)
+CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
+CARTESIA_MODEL = os.getenv("CARTESIA_MODEL", "sonic-3")
+# Natalya - Soothing Guide: спокойный женский голос, подходит интервьюеру
+CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "779673f3-895f-4935-b6b5-b031dc78b319")
+
+# Устаревшее: браузерный фолбэк, если Cartesia недоступна
 TTS_VOICE = "ru-RU-DmitryNeural"  # Русский мужской голос
 TTS_RATE = "+0%"
 TTS_VOLUME = "+0%"
