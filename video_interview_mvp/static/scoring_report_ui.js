@@ -3,11 +3,36 @@
   const sessionId = location.pathname.split('/').filter(Boolean).pop();
   const esc = (v = '') => String(v).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
+  function renderFullVideoStatus(media) {
+    const status = document.getElementById('fullMediaStatus');
+    const warning = document.getElementById('videoWarning');
+    if (!status || !media) return;
+    const source = media.duration_source || 'unknown';
+    const sourceLabel = source === 'server_probe'
+      ? 'длительность подтверждена сервером'
+      : source === 'client_reported'
+        ? 'длительность получена от браузера'
+        : source === 'answer_timeline'
+          ? 'длительность восстановлена по таймлайну ответов'
+          : 'длительность не подтверждена';
+    if (media.playable) {
+      status.innerHTML = `<span class="media-chip media-ok">✓ Видео доступно · ${esc(sourceLabel)}</span>`;
+      if (warning) warning.classList.add('hidden');
+    } else {
+      status.innerHTML = '<span class="media-chip media-bad">⚠ Техническая проверка файла не завершена</span>';
+      if (warning) {
+        warning.textContent = 'Запись сохранена, но backend не смог автоматически подтвердить её размер и длительность. Это технический статус файла, а не оценка достоверности кандидата.';
+        warning.classList.remove('hidden');
+      }
+    }
+  }
+
   async function load() {
     try {
       const response = await fetch(`/api/reports/${sessionId}`);
       if (!response.ok) return;
       const data = await response.json();
+      renderFullVideoStatus(data.full_video_media);
       const final = data.final_evaluation;
       if (!final) return;
 
