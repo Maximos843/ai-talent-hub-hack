@@ -2,7 +2,7 @@
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -341,6 +341,20 @@ def _build_answer_clips(session: InterviewSession, full_video: Path, db: Session
     db.commit()
 
 
+# Срок жизни персональной ссылки на интервью и версия текста согласия.
+INTERVIEW_LINK_TTL_DAYS = 14
+CONSENT_VERSION = "v1"
+
+
+def _assert_link_live(session: InterviewSession) -> None:
+    """Отклоняет запрос, если срок действия ссылки истёк.
+
+    NULL expires_at — ссылка без ограничения (старые сессии до появления поля).
+    """
+    if session.expires_at and session.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="Срок действия ссылки на интервью истёк")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     return templates.TemplateResponse("landing.html", {"request": request})
@@ -670,7 +684,13 @@ async def create_interview_session(
     name = interview_data.candidate_name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Укажите имя кандидата")
-    session = InterviewSession(vacancy_id=vacancy.id, candidate_name=name, session_token=str(uuid.uuid4()), status="pending")
+    session = InterviewSession(
+        vacancy_id=vacancy.id,
+        candidate_name=name,
+        session_token=str(uuid.uuid4()),
+        status="pending",
+        expires_at=datetime.utcnow() + timedelta(days=INTERVIEW_LINK_TTL_DAYS),
+    )
     db.add(session)
     db.flush()
     db.add(CandidateLifecycle(session_id=session.id, status="active", note=""))
@@ -829,8 +849,11 @@ async def start_interview(session_token: str, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
+    _assert_link_live(session)
     if session.final_report:
         raise HTTPException(status_code=400, detail="Интервью уже завершено")
+    if not session.consent_at:
+        raise HTTPException(status_code=409, detail="Требуется согласие на запись")
     _copy_default_questions_to_session(session, db)
     active_count = (
         db.query(InterviewQuestion)

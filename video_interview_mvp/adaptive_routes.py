@@ -283,13 +283,35 @@ async def _make_probe_decision(answer: Answer, question: InterviewQuestion, db: 
     return decision
 
 
+@router.post("/api/interviews/{session_token}/consent", response_class=JSONResponse)
+async def record_consent(session_token: str, db: Session = Depends(get_db)):
+    """Фиксирует согласие кандидата на запись. Без него /start отвечает 409."""
+    session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Сессия не найдена")
+    legacy_main._assert_link_live(session)
+    if session.final_report:
+        raise HTTPException(status_code=400, detail="Интервью уже завершено")
+    if not session.consent_at:
+        from datetime import datetime
+
+        session.consent_at = datetime.utcnow()
+        session.consent_version = legacy_main.CONSENT_VERSION
+        db.commit()
+    return {"message": "Согласие зафиксировано", "consent_version": session.consent_version}
+
+
 @router.get("/api/interviews/{session_token}", response_class=JSONResponse)
 async def get_interview_session(session_token: str, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.session_token == session_token).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
+    # Истекло и завершено — терминальные состояния: клиент показывает свой экран,
+    # а не список вопросов. Возвращаем status, а не ошибку, чтобы фронт различал их.
+    if session.expires_at and session.expires_at < __import__("datetime").datetime.utcnow():
+        return {"status": "expired"}
     if session.final_report:
-        raise HTTPException(status_code=400, detail="Интервью уже завершено")
+        return {"status": "completed"}
     legacy_main._copy_default_questions_to_session(session, db)
     generated_ids = {
         row[0]
@@ -312,13 +334,42 @@ async def get_interview_session(session_token: str, db: Session = Depends(get_db
     questions = [question for question in questions if question.id not in generated_ids]
     if not questions:
         raise HTTPException(status_code=400, detail="HR ещё не настроил вопросы интервью")
+
+    # Состояние для возобновления: какие вопросы уже подтверждены и есть ли
+    # неподтверждённый ответ, к которому кандидат вернётся на экран транскрипта.
+    links = {
+        link.answer_id: link.interview_question_id
+        for link in db.query(AnswerQuestionLink)
+        .join(Answer, Answer.id == AnswerQuestionLink.answer_id)
+        .filter(Answer.session_id == session.id)
+        .all()
+    }
+    answered_question_ids: list[int] = []
+    pending_answer = None
+    for answer in db.query(Answer).filter(Answer.session_id == session.id).order_by(Answer.id).all():
+        question_id = links.get(answer.id)
+        if answer.is_approved_by_candidate:
+            if question_id is not None:
+                answered_question_ids.append(question_id)
+        elif pending_answer is None:
+            pending_answer = {
+                "answer_id": answer.id,
+                "question_id": question_id,
+                "transcript": answer.transcript_corrected or answer.transcript_raw or "",
+            }
+
     return {
+        "status": "active",
         "session_id": session.id,
         "candidate_name": session.candidate_name,
         "vacancy_title": session.vacancy.title,
         "questions": [{"session_question_id": q.id, "question": q.question_text} for q in questions],
         "time_limit": ANSWER_TIME_LIMIT_SECONDS,
         "adaptive_follow_ups": {"enabled": True, "max_per_question": MAX_FOLLOW_UPS},
+        "consent_required": session.consent_at is None,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+        "answered_question_ids": answered_question_ids,
+        "pending_answer": pending_answer,
     }
 
 
@@ -327,6 +378,7 @@ async def correct_transcript(payload: legacy_main.TranscriptCorrection, db: Sess
     answer = db.query(Answer).filter(Answer.id == payload.answer_id).first()
     if not answer:
         raise HTTPException(status_code=404, detail="Ответ не найден")
+    legacy_main._assert_link_live(answer.interview_session)
     corrected = payload.corrected_transcript.strip()
     if not corrected:
         raise HTTPException(status_code=400, detail="Транскрипция не может быть пустой")

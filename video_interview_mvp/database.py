@@ -98,6 +98,12 @@ class InterviewSession(Base):
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Согласие кандидата на запись фиксируется до старта интервью; версия — на
+    # случай изменения формулировки, чтобы было видно, на что он соглашался.
+    consent_at = Column(DateTime)
+    consent_version = Column(String)
+    # Срок действия персональной ссылки. NULL — без ограничения (старые сессии).
+    expires_at = Column(DateTime)
 
     vacancy = relationship("Vacancy", back_populates="interview_sessions")
     answers = relationship("Answer", back_populates="interview_session", cascade="all, delete-orphan")

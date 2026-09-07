@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -108,6 +108,7 @@ def _candidate_card(session: InterviewSession) -> dict:
         "created_at": session.created_at.isoformat() if session.created_at else None,
         "invited_at": session.invited_at.isoformat() if session.invited_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
         "interview_url": f"/interview/{session.session_token}",
         "overall_score": report.overall_score if report else None,
         "recommendation": report.recommendation if report else None,
@@ -584,6 +585,7 @@ async def add_candidate(
         candidate_name=name,
         session_token=str(uuid.uuid4()),
         status="pending",
+        expires_at=datetime.utcnow() + timedelta(days=legacy_main.INTERVIEW_LINK_TTL_DAYS),
     )
     db.add(session)
     db.flush()

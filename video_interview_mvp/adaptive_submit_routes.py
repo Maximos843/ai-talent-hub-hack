@@ -40,6 +40,7 @@ async def submit_answer(
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
+    legacy_main._assert_link_live(session)
     interview_question = (
         db.query(InterviewQuestion)
         .filter(
@@ -129,3 +130,32 @@ async def submit_answer(
         "audio_duration_ms": audio_duration_ms,
         "audio_size_bytes": audio_size_bytes,
     }
+
+
+@router.delete("/api/interviews/answers/{answer_id}", response_class=JSONResponse)
+async def discard_answer(answer_id: int, db: Session = Depends(get_db)):
+    """«Ответить заново»: удаляет неподтверждённый ответ, чтобы записать заново.
+
+    Безопасно, потому что оценка и решение об уточняющем вопросе создаются только
+    при подтверждении транскрипта. У неподтверждённого ответа нет ни балла, ни
+    AdaptiveProbeDecision — удалять нечего, кроме самого ответа, его медиа-строки,
+    связи с вопросом и загруженного аудиофайла.
+    """
+    answer = db.query(Answer).filter(Answer.id == answer_id).first()
+    if not answer:
+        raise HTTPException(status_code=404, detail="Ответ не найден")
+    session = answer.interview_session
+    if session and session.final_report:
+        raise HTTPException(status_code=404, detail="Интервью уже завершено")
+    if answer.is_approved_by_candidate:
+        raise HTTPException(status_code=404, detail="Ответ уже подтверждён и не может быть удалён")
+
+    if answer.audio_path:
+        try:
+            os.remove(answer.audio_path)
+        except OSError:
+            pass  # файла может не быть — это не мешает удалить запись
+    db.query(AnswerQuestionLink).filter(AnswerQuestionLink.answer_id == answer.id).delete()
+    db.delete(answer)  # AnswerMedia уходит каскадом (delete-orphan)
+    db.commit()
+    return {"message": "Ответ удалён"}

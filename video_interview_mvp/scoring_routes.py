@@ -215,6 +215,7 @@ async def complete_interview(session_id: int, db: Session = Depends(get_db)):
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Сессия не найдена")
+    legacy_main._assert_link_live(session)
     answers = db.query(Answer).filter(Answer.session_id == session_id).order_by(Answer.id).all()
     if not answers:
         raise HTTPException(status_code=400, detail="Нельзя завершить интервью без ответов")
@@ -334,6 +335,34 @@ async def get_report(
             "end_ms": answer.media.end_ms if answer.media else None,
             "analysis": answer.llm_analysis,
         })
+    # Непройденные корневые вопросы: активные, не сгенерированные follow-up, без
+    # подтверждённого ответа. Иначе досрочно завершённое интервью выглядит как
+    # полное — рекрутер не отличит «ответил плохо» от «не отвечал».
+    generated_follow_up_ids = {
+        row[0]
+        for row in db.query(AdaptiveProbeDecision.follow_up_question_id)
+        .filter(
+            AdaptiveProbeDecision.session_id == session_id,
+            AdaptiveProbeDecision.follow_up_question_id.is_not(None),
+        )
+        .all()
+    }
+    answered_ids = {
+        link.interview_question_id
+        for link in db.query(AnswerQuestionLink)
+        .join(Answer, Answer.id == AnswerQuestionLink.answer_id)
+        .filter(Answer.session_id == session_id, Answer.is_approved_by_candidate.is_(True))
+        .all()
+    }
+    unanswered_questions = [
+        {"question_id": q.id, "question": q.question_text, "competency": q.competency}
+        for q in db.query(InterviewQuestion)
+        .filter(InterviewQuestion.session_id == session_id, InterviewQuestion.is_active.is_(True))
+        .order_by(InterviewQuestion.order_index, InterviewQuestion.id)
+        .all()
+        if q.id not in generated_follow_up_ids and q.id not in answered_ids
+    ]
+
     return {
         "id": report.id,
         "session_id": report.session_id,
@@ -351,6 +380,7 @@ async def get_report(
         "score_confidence": confidence,
         "vacancy_coverage": coverage,
         "final_evaluation": final_evaluation,
+        "unanswered_questions": unanswered_questions,
         "adaptive_follow_ups": _adaptive_follow_up_report(session_id, db),
         "full_video_path": legacy_main._web_upload_path(str(full_video)) if full_video else None,
         "full_video_media": full_video_meta,
