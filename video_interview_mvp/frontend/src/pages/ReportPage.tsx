@@ -11,13 +11,14 @@ import {
   Minus,
   Play,
   Share2,
+  ShieldCheck,
   ThumbsDown,
   ThumbsUp,
   UserPlus,
 } from 'lucide-react'
 import { PageBody, PageHeader } from '@/components/layout/AppShell'
 import { api } from '@/lib/api'
-import type { CoverageItem, ReportAnswer, ReportResponse } from '@/lib/types'
+import type { CoverageItem, ProctoringSummary, ReportAnswer, ReportResponse } from '@/lib/types'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -591,6 +592,91 @@ function AnswerBlock({ answer, followUps, index }: { answer: ReportAnswer; follo
 
 // ---------------------------------------------------------------- страница
 
+function seconds(ms: number) {
+  if (!ms || ms < 1000) return null
+  const total = Math.round(ms / 1000)
+  return total < 60 ? `${total} с` : `${Math.floor(total / 60)} мин ${total % 60} с`
+}
+
+/** Прокторинг собирался всё интервью, но до отчёта не доходил: сигналы копились
+ *  в базе и никто их не видел. Показываем их рекрутеру как evidence — отдельно
+ *  от оценки и без вердикта, решение о добросовестности остаётся за человеком. */
+function ProctoringSection({ sessionId }: { sessionId: number }) {
+  const [data, setData] = useState<ProctoringSummary | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    api
+      .get<ProctoringSummary>(`/api/proctoring/${sessionId}/summary`)
+      .then(setData)
+      .catch(() => setFailed(true))
+  }, [sessionId])
+
+  if (failed || !data) return null
+
+  const browser = [
+    { label: 'Уходы со вкладки', value: data.tab_switches, extra: seconds(data.tab_hidden_duration_ms) },
+    { label: 'Потери фокуса', value: data.window_blurs, extra: seconds(data.window_blur_duration_ms) },
+    { label: 'Вставки из буфера', value: data.clipboard_pastes, extra: null },
+    { label: 'Копирования', value: data.clipboard_copies, extra: null },
+    { label: 'Выходы из fullscreen', value: data.fullscreen_exits, extra: null },
+    { label: 'Обрывы сети', value: data.network_interruptions, extra: null },
+    { label: 'Обрывы камеры и микрофона', value: data.media_interruptions, extra: null },
+  ]
+  const vision = [
+    { label: 'Лицо не найдено', value: data.face_missing_episodes, extra: seconds(data.face_missing_duration_ms) },
+    { label: 'Несколько лиц', value: data.multiple_faces_episodes, extra: seconds(data.multiple_faces_duration_ms) },
+    { label: 'Отвод головы', value: data.head_away_episodes, extra: seconds(data.head_away_duration_ms) },
+    { label: 'Отвод взгляда', value: data.gaze_away_episodes, extra: seconds(data.gaze_away_duration_ms) },
+  ]
+
+  const tile = (item: { label: string; value: number; extra: string | null }) => (
+    <div
+      key={item.label}
+      className={cn(
+        'rounded-lg border px-3 py-2.5',
+        item.value > 0 ? 'border-warn/30 bg-warn-tint' : 'border-line bg-secondary',
+      )}
+    >
+      <p className={cn('tnum text-[18px] font-bold leading-none', item.value > 0 ? 'text-warn-ink' : 'text-ink-3')}>
+        {item.value}
+      </p>
+      <p className="mt-1.5 text-[11.5px] leading-snug text-ink-3">{item.label}</p>
+      {item.extra && <p className="mt-0.5 text-[11px] text-ink-3">суммарно {item.extra}</p>}
+    </div>
+  )
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl bg-card shadow-[0_6px_24px_rgba(19,19,19,0.06)]">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <h2 className="flex items-center gap-2 text-[15px] font-bold text-ink-700">
+          <ShieldCheck className="size-4 text-ink-3" strokeWidth={2.2} />
+          Прокторинг
+        </h2>
+        <span className="tnum text-[12px] text-ink-3">
+          {data.total_events === 0 ? 'сигналов не зафиксировано' : `${data.total_events} событий`}
+        </span>
+      </header>
+
+      <div className="p-5">
+        <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-3">Браузер</p>
+        <div className="mt-2.5 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">{browser.map(tile)}</div>
+
+        <p className="mt-5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-3">Видеопоток</p>
+        {data.vision_available ? (
+          <div className="mt-2.5 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">{vision.map(tile)}</div>
+        ) : (
+          <p className="mt-2 rounded-lg border border-dashed border-line-2 px-4 py-3 text-[12.5px] text-ink-3">
+            Анализ видеопотока не выполнялся: MediaPipe не запустился у кандидата. Это не признак нарушения.
+          </p>
+        )}
+
+        <p className="mt-5 text-[12px] leading-snug text-ink-3">{data.disclaimer}</p>
+      </div>
+    </section>
+  )
+}
+
 export function ReportPage() {
   const { id } = useParams()
   const [report, setReport] = useState<ReportResponse | null>(null)
@@ -718,6 +804,33 @@ export function ReportPage() {
             </p>
           )}
         </div>
+
+        {report.unanswered_questions.length > 0 && (
+          <section className="mt-6 overflow-hidden rounded-xl bg-card shadow-[0_6px_24px_rgba(19,19,19,0.06)]">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+              <h2 className="text-[15px] font-bold text-ink-700">Не проверено</h2>
+              <span className="tnum text-[12px] text-ink-3">{report.unanswered_questions.length}</span>
+            </header>
+            <p className="px-5 pt-3 text-[12px] leading-snug text-ink-3">
+              Кандидат не ответил на эти вопросы — интервью завершено досрочно. Отсутствие
+              ответа не означает отсутствие навыка; итоговый балл считается только по
+              отвеченным вопросам.
+            </p>
+            <ul className="divide-y divide-line px-1 py-2">
+              {report.unanswered_questions.map((item) => (
+                <li key={item.question_id} className="flex items-start gap-3 px-4 py-3">
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-secondary text-ink-3">
+                    <CircleHelp className="size-3" strokeWidth={2.6} />
+                  </span>
+                  <span className="min-w-0 flex-1 text-[13.5px] text-ink">{item.question}</span>
+                  <span className="pill shrink-0 bg-secondary text-ink-3">не проверялось</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <ProctoringSection sessionId={report.session_id} />
 
         {report.full_video_path && report.full_video_media?.playable && (
           <section className="mt-6 rounded-xl bg-card p-5 shadow-[0_6px_24px_rgba(19,19,19,0.06)]">

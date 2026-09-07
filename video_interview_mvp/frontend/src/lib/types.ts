@@ -204,6 +204,7 @@ export interface ReportResponse {
     issues: Array<{ text?: string; evidence?: string } | string>
   } | null
   answers: ReportAnswer[]
+  unanswered_questions: Array<{ question_id: number; question: string; competency: string | null }>
   full_video_path: string | null
   full_video_media: MediaInfo | null
   generated_at: string
@@ -211,4 +212,31 @@ export interface ReportResponse {
   viewer_role: 'hr' | 'hiring_manager'
   hr_review: { decision: string; comment: string } | null
   manager_review: { decision: string; comment: string } | null
+}
+
+/** Сводка прокторинга: вспомогательные сигналы для ручной проверки.
+ *  На технический балл кандидата они не влияют. */
+export interface ProctoringSummary {
+  total_events: number
+  tab_switches: number
+  tab_hidden_duration_ms: number
+  window_blurs: number
+  window_blur_duration_ms: number
+  clipboard_pastes: number
+  clipboard_copies: number
+  fullscreen_exits: number
+  network_interruptions: number
+  media_interruptions: number
+  vision_available: boolean
+  vision_unavailable: number
+  face_missing_episodes: number
+  face_missing_duration_ms: number
+  multiple_faces_episodes: number
+  multiple_faces_duration_ms: number
+  head_away_episodes: number
+  head_away_duration_ms: number
+  gaze_away_episodes: number
+  gaze_away_duration_ms: number
+  disclaimer: string
+  events: Array<{ type: string; created_at: string | null; metadata: Record<string, unknown> }>
 }
