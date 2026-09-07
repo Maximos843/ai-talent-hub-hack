@@ -37,16 +37,14 @@ LLM_MODEL_FAST = os.getenv("LLM_MODEL_FAST", "google/gemini-3.1-flash-lite")
 # ASR Configuration (DeepGram)
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 
-# TTS Configuration (Cartesia Sonic — живой русский голос)
-CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
-CARTESIA_MODEL = os.getenv("CARTESIA_MODEL", "sonic-3")
-# Natalya - Soothing Guide: спокойный женский голос, подходит интервьюеру
-CARTESIA_VOICE_ID = os.getenv("CARTESIA_VOICE_ID", "779673f3-895f-4935-b6b5-b031dc78b319")
-
-# Устаревшее: браузерный фолбэк, если Cartesia недоступна
-TTS_VOICE = "ru-RU-DmitryNeural"  # Русский мужской голос
-TTS_RATE = "+0%"
-TTS_VOLUME = "+0%"
+# TTS Configuration (OpenAI-совместимый /audio/speech)
+# Синтез задаётся отдельно от LLM: провайдеры у них разные.
+TTS_API_KEY = os.getenv("TTS_API_KEY", "")
+TTS_BASE_URL = os.getenv("TTS_BASE_URL", "https://api.neuraldeep.ru/v1")
+TTS_VOICE = os.getenv("TTS_VOICE", "serena")
+# Эмоция и стиль задаются свободным текстом: «спокойно», «доброжелательно».
+# Пустое значение — нейтральная подача голоса по умолчанию.
+TTS_INSTRUCTIONS = os.getenv("TTS_INSTRUCTIONS", "")
 
 # Interview settings
 MAX_QUESTIONS_PER_INTERVIEW = 10

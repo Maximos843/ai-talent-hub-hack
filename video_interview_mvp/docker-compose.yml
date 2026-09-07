@@ -15,9 +15,10 @@ services:
       - LLM_BASE_URL=https://openrouter.ai/api/v1
       - LLM_MODEL=qwen/qwen-2.5-72b-instruct
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
-      - TTS_VOICE=ru-RU-DmitryNeural
-      - TTS_RATE=+0%
-      - TTS_VOLUME=+0%
+      - TTS_API_KEY=${TTS_API_KEY:-}
+      - TTS_BASE_URL=${TTS_BASE_URL:-https://api.neuraldeep.ru/v1}
+      - TTS_VOICE=${TTS_VOICE:-serena}
+      - TTS_INSTRUCTIONS=${TTS_INSTRUCTIONS:-}
       - TLS_HOST=${TLS_HOST:-localhost}
     restart: unless-stopped
     healthcheck:

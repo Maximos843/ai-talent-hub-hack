@@ -39,7 +39,7 @@ from services.auth_service import (
 
 # Import after mvp_models so main.init_db() creates additive tables as well.
 import main as legacy_main
-from services.tts_service_cartesia import TTSUnavailable, synthesize
+from services.tts_service import TTSUnavailable, media_type_for, synthesize
 
 
 database.init_db()
@@ -93,7 +93,10 @@ def _looks_like_candidate_api(method: str, path: str) -> bool:
     tail = parts[2:]
     if method == "GET" and len(tail) == 1 and "-" in tail[0]:
         return True
-    if method == "POST" and len(tail) == 2 and "-" in tail[0] and tail[1] == "start":
+    if method == "POST" and len(tail) == 2 and "-" in tail[0] and tail[1] in {"start", "consent"}:
+        return True
+    # «Ответить заново»: кандидат без авторизации удаляет свой неподтверждённый ответ.
+    if method == "DELETE" and len(tail) == 2 and tail[0] == "answers" and tail[1].isdigit():
         return True
     if method == "POST" and len(tail) == 2 and tail[0].isdigit() and tail[1] in {"full-video", "complete"}:
         return True
@@ -521,7 +524,9 @@ async def speak_question(session_token: str, text: str = "", db: Session = Depen
         audio = await synthesize(text)
     except TTSUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return FileResponse(audio, media_type="audio/mpeg", headers={"Cache-Control": "public, max-age=86400"})
+    # no-store: URL зависит только от текста, поэтому при смене голоса или модели
+    # браузер иначе сутки играл бы прежнюю запись. Диск отдаёт файл за миллисекунды.
+    return FileResponse(audio, media_type=media_type_for(audio), headers={"Cache-Control": "no-store"})
 
 
 # Keep all existing business routes and static mounts as a fallback.
