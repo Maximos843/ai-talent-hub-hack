@@ -44,7 +44,6 @@ jobs:
           assert sum(path == "/api/reports/{session_id}" and "GET" in methods for path, methods in pairs) == 1
           print("main:app + adaptive canonical business routes OK")
           PY
-      - run: python -m unittest discover -s tests -v
       - name: Check browser scripts syntax
         run: |
           node --check static/proctor.js

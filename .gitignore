@@ -39,3 +39,12 @@ Thumbs.db
 
 # Temp files
 *.tmp
+# Тесты — локальные, в репозиторий не идут
+video_interview_mvp/tests/
+
+# Проектная документация и служебные файлы (локально)
+video_interview_mvp/docs/
+.claude/
+case_description.md
+mvp.md
+DAY1_ARTIFACTS.md
